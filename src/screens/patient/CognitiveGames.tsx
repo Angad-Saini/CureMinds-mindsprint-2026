@@ -1,4 +1,5 @@
-import React, { useState } from "react";
+
+import React, { useEffect, useRef, useState } from "react";
 import { supabase } from "../../services/supabase";
 import {
   View,
@@ -9,34 +10,18 @@ import {
   StyleSheet,
 } from "react-native";
 
-const saveGameSession = async (
-  gameName: string,
-  score: number,
-  totalQuestions: number
-) => {
-  const { data: { user }, error: userError } =
-    await supabase.auth.getUser();
+type GameScreen = "home" | "memory" | "object" | "routine";
 
-  if (userError || !user) {
-    console.error("Unable to get patient:", userError);
-    return;
-  }
-
-  const { error } = await supabase
-    .from("patient_game_sessions")
-    .insert({
-      patient_id: user.id,
-      game_name: gameName,
-      score,
-      total_questions: totalQuestions,
-    });
-
-  if (error) {
-    console.error("Unable to save game session:", error);
-  }
+type GameObject = {
+  name: string;
+  image: string;
 };
 
-const objects = [
+type MemoryCard = GameObject & {
+  id: number;
+};
+
+const objects: GameObject[] = [
   {
     name: "Apple",
     image:
@@ -64,55 +49,128 @@ const routines = [
     name: "Drink Water",
     image:
       "https://images.unsplash.com/photo-1548839140-29a749e1cf4d?w=500",
+    description: "Remember to stay hydrated.",
   },
   {
     name: "Morning Walk",
     image:
       "https://images.unsplash.com/photo-1476480862126-209bfaa8edc8?w=500",
+    description: "Take some time for a walk.",
   },
   {
     name: "Take Medicine",
     image:
       "https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?w=500",
+    description: "Follow your prescribed medicine schedule.",
   },
 ];
 
-const memoryCards = [
-  objects[0],
-  objects[1],
-  objects[2],
-  objects[3],
-];
+const shuffle = <T,>(items: T[]): T[] => {
+  const result = [...items];
+
+  for (let i = result.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [result[i], result[j]] = [result[j], result[i]];
+  }
+
+  return result;
+};
+
+const saveGameSession = async (
+  gameName: string,
+  score: number,
+  totalQuestions: number
+) => {
+  try {
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser();
+
+    if (userError || !user) {
+      console.error("Unable to get patient:", userError);
+      return;
+    }
+
+    const { error } = await supabase
+      .from("patient_game_sessions")
+      .insert({
+        patient_id: user.id,
+        game_name: gameName,
+        score,
+        total_questions: totalQuestions,
+      });
+
+    if (error) {
+      console.error("Unable to save game session:", error);
+    }
+  } catch (error) {
+    console.error("Game session error:", error);
+  }
+};
 
 export default function CognitiveGames() {
-  const [screen, setScreen] = useState("home");
-  const [question, setQuestion] = useState(0);
-  const [score, setScore] = useState(0);
-  const [feedback, setFeedback] = useState("");
-  const [completed, setCompleted] = useState(false);
-  const [routineDone, setRoutineDone] = useState<number[]>([]);
-  const [cards, setCards] = useState<any[]>([]);
+  const [screen, setScreen] = useState<GameScreen>("home");
+
+  const [cards, setCards] = useState<MemoryCard[]>([]);
   const [selected, setSelected] = useState<number[]>([]);
   const [matched, setMatched] = useState<number[]>([]);
+  const [moves, setMoves] = useState(0);
+  const [memoryCompleted, setMemoryCompleted] = useState(false);
+
+  const [question, setQuestion] = useState(0);
+  const [score, setScore] = useState(0);
+  const [options, setOptions] = useState<GameObject[]>([]);
+  const [feedback, setFeedback] = useState("");
+  const [answered, setAnswered] = useState(false);
+  const [objectCompleted, setObjectCompleted] = useState(false);
+
+  const [routineDone, setRoutineDone] = useState<number[]>([]);
+
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const memoryLocked = useRef(false);
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+      }
+    };
+  }, []);
+
+  const clearGameTimer = () => {
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+  };
 
   const startMemory = () => {
-    const shuffled = [...memoryCards, ...memoryCards]
-      .map((card, i) => ({ ...card, id: i }))
-      .sort(() => Math.random() - 0.5);
+    clearGameTimer();
+
+    const shuffled = shuffle([...objects, ...objects]).map(
+      (card, index) => ({
+        ...card,
+        id: index,
+      })
+    );
 
     setCards(shuffled);
     setSelected([]);
     setMatched([]);
-    setScore(0);
-    setCompleted(false);
+    setMoves(0);
+    setMemoryCompleted(false);
+    memoryLocked.current = false;
     setScreen("memory");
   };
 
   const flipCard = (index: number) => {
     if (
+      memoryLocked.current ||
       selected.length === 2 ||
       selected.includes(index) ||
-      matched.includes(index)
+      matched.includes(index) ||
+      memoryCompleted
     ) {
       return;
     }
@@ -121,80 +179,138 @@ export default function CognitiveGames() {
     setSelected(newSelected);
 
     if (newSelected.length === 2) {
+      setMoves((previous) => previous + 1);
+
       const first = cards[newSelected[0]];
       const second = cards[newSelected[1]];
 
       if (first.name === second.name) {
         const newMatched = [...matched, ...newSelected];
+
         setMatched(newMatched);
-        setScore((s) => s + 1);
         setSelected([]);
 
         if (newMatched.length === cards.length) {
-  setCompleted(true);
-  saveGameSession("Memory Match", score + 1, cards.length / 2);
-}
+          setMemoryCompleted(true);
+          saveGameSession("Memory Match", objects.length, objects.length);
+        }
       } else {
-        setTimeout(() => setSelected([]), 900);
+        memoryLocked.current = true;
+
+        timerRef.current = setTimeout(() => {
+          setSelected([]);
+          memoryLocked.current = false;
+          timerRef.current = null;
+        }, 1100);
       }
     }
   };
 
   const startObjectGame = () => {
+    clearGameTimer();
+
     setQuestion(0);
     setScore(0);
     setFeedback("");
-    setCompleted(false);
+    setAnswered(false);
+    setObjectCompleted(false);
+    setOptions(shuffle(objects));
     setScreen("object");
   };
 
   const answerObject = (answer: string) => {
-  if (feedback !== "") return;
+    if (answered || objectCompleted) return;
 
-  const correct = objects[question].name;
-  const nextScore = answer === correct ? score + 1 : score;
+    setAnswered(true);
 
-  if (answer === correct) {
-    setScore(nextScore);
-    setFeedback("Correct! Well done.");
-  } else {
-    setFeedback("Try again next time!");
-  }
+    const correct = objects[question].name;
+    const isCorrect = answer === correct;
+    const nextScore = isCorrect ? score + 1 : score;
 
-  setTimeout(() => {
-    if (question < objects.length - 1) {
-      setQuestion((q) => q + 1);
-      setFeedback("");
+    if (isCorrect) {
+      setScore(nextScore);
+      setFeedback("Correct! Well done!");
     } else {
-      setCompleted(true);
-      saveGameSession(
-        "Object Recognition",
-        nextScore,
-        objects.length
-      );
+      setFeedback(`That's okay! The correct answer is ${correct}.`);
     }
-  }, 1200);
-};
+
+    timerRef.current = setTimeout(() => {
+      if (question < objects.length - 1) {
+        setQuestion((previous) => previous + 1);
+        setOptions(shuffle(objects));
+        setFeedback("");
+        setAnswered(false);
+      } else {
+        setObjectCompleted(true);
+
+        saveGameSession(
+          "Object Recognition",
+          nextScore,
+          objects.length
+        );
+      }
+
+      timerRef.current = null;
+    }, 1500);
+  };
+
+  const startRoutine = () => {
+    setRoutineDone([]);
+    setScreen("routine");
+  };
 
   const toggleRoutine = (index: number) => {
-    setRoutineDone((prev) =>
-      prev.includes(index)
-        ? prev.filter((i) => i !== index)
-        : [...prev, index]
+    setRoutineDone((previous) =>
+      previous.includes(index)
+        ? previous.filter((item) => item !== index)
+        : [...previous, index]
     );
   };
 
   const resetHome = () => {
-    setScreen("home");
+    clearGameTimer();
+    memoryLocked.current = false;
+    setSelected([]);
     setFeedback("");
-    setCompleted(false);
+    setAnswered(false);
+    setMemoryCompleted(false);
+    setObjectCompleted(false);
+    setScreen("home");
   };
 
+  const renderActionButton = (
+    label: string,
+    onPress: () => void,
+    secondary = false
+  ) => (
+    <TouchableOpacity
+      style={[
+        styles.actionButton,
+        secondary && styles.secondaryButton,
+      ]}
+      onPress={onPress}
+      activeOpacity={0.8}
+    >
+      <Text
+        style={[
+          styles.actionButtonText,
+          secondary && styles.secondaryButtonText,
+        ]}
+      >
+        {label}
+      </Text>
+    </TouchableOpacity>
+  );
+
   return (
-    <ScrollView style={styles.container}>
-      <Text style={styles.heading}>CureMinds</Text>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={styles.content}
+      showsVerticalScrollIndicator={false}
+    >
+      <Text style={styles.heading}>Cognitive Activities</Text>
       <Text style={styles.subtitle}>
-        Let's play and keep our minds active!
+        Take your time, enjoy yourself, and keep learning!
       </Text>
 
       {screen === "home" && (
@@ -202,57 +318,94 @@ export default function CognitiveGames() {
           <TouchableOpacity
             style={styles.gameCard}
             onPress={startMemory}
+            activeOpacity={0.8}
           >
-            <Text style={styles.gameTitle}>🧠 Memory Match</Text>
+            <View style={styles.gameIcon}>
+              <Text style={styles.gameEmoji}>🧠</Text>
+            </View>
+
+            <Text style={styles.gameTitle}>Memory Match</Text>
             <Text style={styles.description}>
-              Find matching pictures.
+              Find matching pictures by remembering where they are.
             </Text>
-            <Text style={styles.button}>Start Game</Text>
+
+            <Text style={styles.cardButton}>Play Game →</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
             style={styles.gameCard}
             onPress={startObjectGame}
+            activeOpacity={0.8}
           >
-            <Text style={styles.gameTitle}>🍎 Object Recognition</Text>
+            <View style={styles.gameIcon}>
+              <Text style={styles.gameEmoji}>🍎</Text>
+            </View>
+
+            <Text style={styles.gameTitle}>Object Recognition</Text>
             <Text style={styles.description}>
-              Identify familiar objects.
+              Look at familiar objects and identify what you see.
             </Text>
-            <Text style={styles.button}>Start Game</Text>
+
+            <Text style={styles.cardButton}>Play Game →</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
             style={styles.gameCard}
-            onPress={() => setScreen("routine")}
+            onPress={startRoutine}
+            activeOpacity={0.8}
           >
-            <Text style={styles.gameTitle}>🏠 Daily Routine</Text>
+            <View style={styles.gameIcon}>
+              <Text style={styles.gameEmoji}>🏠</Text>
+            </View>
+
+            <Text style={styles.gameTitle}>Daily Routine</Text>
             <Text style={styles.description}>
-              Remember everyday activities.
+              Keep track of everyday activities and routines.
             </Text>
-            <Text style={styles.button}>Start Activity</Text>
+
+            <Text style={styles.cardButton}>Start Activity →</Text>
           </TouchableOpacity>
         </View>
       )}
-
-      {/* MEMORY MATCH GAME */}
 
       {screen === "memory" && (
         <View style={styles.section}>
           <Text style={styles.gameTitle}>Memory Match</Text>
 
           <Text style={styles.description}>
-            Tap two pictures to find a matching pair.
+            Find two pictures that look the same. Take your time!
           </Text>
 
-          {completed ? (
+          <View style={styles.statsRow}>
+            <View style={styles.statCard}>
+              <Text style={styles.statNumber}>
+                {matched.length / 2}
+              </Text>
+              <Text style={styles.statLabel}>Matches</Text>
+            </View>
+
+            <View style={styles.statCard}>
+              <Text style={styles.statNumber}>{moves}</Text>
+              <Text style={styles.statLabel}>Moves</Text>
+            </View>
+          </View>
+
+          {memoryCompleted ? (
             <View style={styles.center}>
-              <Text style={styles.success}>Wonderful! 🎉</Text>
+              <Text style={styles.success}>Wonderful work! 🎉</Text>
               <Text style={styles.description}>
-                You matched all the pictures!
+                You found every matching pair.
               </Text>
+
               <Text style={styles.score}>
-                Matches: {score}
+                {objects.length} out of {objects.length} matches
               </Text>
+
+              <Text style={styles.description}>
+                Total moves: {moves}
+              </Text>
+
+              {renderActionButton("Play Again", startMemory)}
             </View>
           ) : (
             <View style={styles.grid}>
@@ -264,8 +417,16 @@ export default function CognitiveGames() {
                 return (
                   <TouchableOpacity
                     key={card.id}
-                    style={styles.tile}
+                    style={[
+                      styles.tile,
+                      matched.includes(index) && styles.matchedTile,
+                    ]}
                     onPress={() => flipCard(index)}
+                    activeOpacity={0.8}
+                    accessibilityRole="button"
+                    accessibilityLabel={
+                      isVisible ? card.name : "Hidden card"
+                    }
                   >
                     {isVisible ? (
                       <Image
@@ -285,25 +446,47 @@ export default function CognitiveGames() {
         </View>
       )}
 
-      {/* OBJECT RECOGNITION GAME */}
-
       {screen === "object" && (
         <View style={styles.section}>
-          <Text style={styles.gameTitle}>
-            Object Recognition
-          </Text>
+          <Text style={styles.gameTitle}>Object Recognition</Text>
 
-          {completed ? (
+          <View style={styles.progressContainer}>
+            <View
+              style={[
+                styles.progressFill,
+                {
+                  width: `${
+                    ((question + (objectCompleted ? 1 : 0)) /
+                      objects.length) *
+                    100
+                  }%`,
+                },
+              ]}
+            />
+          </View>
+
+          {objectCompleted ? (
             <View style={styles.center}>
-              <Text style={styles.success}>Game Completed! 🎉</Text>
+              <Text style={styles.success}>Activity Completed! 🎉</Text>
+
+              <Text style={styles.description}>
+                Great effort! You finished all the questions.
+              </Text>
+
               <Text style={styles.score}>
                 Score: {score} / {objects.length}
               </Text>
+
+              {renderActionButton("Play Again", startObjectGame)}
             </View>
           ) : (
             <>
+              <Text style={styles.questionCount}>
+                Question {question + 1} of {objects.length}
+              </Text>
+
               <Text style={styles.description}>
-                Which object is shown below?
+                Which object is shown in this picture?
               </Text>
 
               <Image
@@ -312,73 +495,129 @@ export default function CognitiveGames() {
               />
 
               <View style={styles.options}>
-                {objects.map((item, index) => (
+                {options.map((item) => (
                   <TouchableOpacity
-                    key={index}
-                    style={styles.option}
+                    key={item.name}
+                    style={[
+                      styles.option,
+                      answered &&
+                        item.name === objects[question].name &&
+                        styles.correctOption,
+                    ]}
                     onPress={() => answerObject(item.name)}
+                    disabled={answered}
+                    activeOpacity={0.8}
                   >
-                    <Text style={styles.optionText}>
+                    <Text
+                      style={[
+                        styles.optionText,
+                        answered &&
+                          item.name === objects[question].name &&
+                          styles.correctOptionText,
+                      ]}
+                    >
                       {item.name}
                     </Text>
                   </TouchableOpacity>
                 ))}
               </View>
 
-              <Text style={styles.feedback}>{feedback}</Text>
-
-              <Text style={styles.description}>
-                Question {question + 1} of {objects.length}
+              <Text
+                style={[
+                  styles.feedback,
+                  feedback.startsWith("That's okay") &&
+                    styles.neutralFeedback,
+                ]}
+              >
+                {feedback}
               </Text>
             </>
           )}
         </View>
       )}
 
-      {/* DAILY ROUTINE */}
-
       {screen === "routine" && (
         <View style={styles.section}>
           <Text style={styles.gameTitle}>Daily Routine</Text>
+
           <Text style={styles.description}>
-            Tap an activity when it is completed.
+            Tap an activity when you have completed it.
           </Text>
 
-          {routines.map((item, index) => (
-            <TouchableOpacity
-              key={index}
-              style={styles.routineCard}
-              onPress={() => toggleRoutine(index)}
-            >
-              <Image
-                source={{ uri: item.image }}
-                style={styles.routineImage}
-              />
+          <View style={styles.routineProgress}>
+            <Text style={styles.routineProgressText}>
+              Your progress
+            </Text>
 
-              <View style={{ flex: 1 }}>
-                <Text style={styles.routineName}>
-                  {item.name}
-                </Text>
+            <Text style={styles.routineProgressText}>
+              {routineDone.length} / {routines.length}
+            </Text>
+          </View>
 
-                <Text
-                  style={{
-                    color: routineDone.includes(index)
-                      ? "#17854A"
-                      : "#D18B27",
-                    fontWeight: "700",
-                  }}
-                >
-                  {routineDone.includes(index)
-                    ? "Completed ✓"
-                    : "Pending"}
-                </Text>
-              </View>
-            </TouchableOpacity>
-          ))}
+          <View style={styles.progressContainer}>
+            <View
+              style={[
+                styles.progressFill,
+                {
+                  width: `${
+                    (routineDone.length / routines.length) * 100
+                  }%`,
+                },
+              ]}
+            />
+          </View>
 
-          <Text style={styles.score}>
-            Completed: {routineDone.length} / {routines.length}
-          </Text>
+          {routines.map((item, index) => {
+            const isDone = routineDone.includes(index);
+
+            return (
+              <TouchableOpacity
+                key={index}
+                style={[
+                  styles.routineCard,
+                  isDone && styles.completedRoutineCard,
+                ]}
+                onPress={() => toggleRoutine(index)}
+                activeOpacity={0.8}
+              >
+                <Image
+                  source={{ uri: item.image }}
+                  style={styles.routineImage}
+                />
+
+                <View style={styles.routineDetails}>
+                  <Text style={styles.routineName}>
+                    {item.name}
+                  </Text>
+
+                  <Text style={styles.routineDescription}>
+                    {item.description}
+                  </Text>
+
+                  <Text
+                    style={[
+                      styles.routineStatus,
+                      isDone && styles.completedStatus,
+                    ]}
+                  >
+                    {isDone ? "Completed ✓" : "Tap to complete"}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            );
+          })}
+
+          {routineDone.length === routines.length && (
+            <Text style={styles.success}>
+              All activities completed! 🎉
+            </Text>
+          )}
+
+          {renderActionButton(
+            "Reset Checklist",
+            () => setRoutineDone([]),
+            true
+          )}
         </View>
       )}
 
@@ -386,8 +625,9 @@ export default function CognitiveGames() {
         <TouchableOpacity
           style={styles.backButton}
           onPress={resetHome}
+          activeOpacity={0.8}
         >
-          <Text style={styles.backText}>← Back to Games</Text>
+          <Text style={styles.backText}>← Back to Activities</Text>
         </TouchableOpacity>
       )}
     </ScrollView>
@@ -397,19 +637,24 @@ export default function CognitiveGames() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#F5F3FF",
+    backgroundColor: "#F7F5FC",
+  },
+  content: {
     padding: 20,
+    paddingBottom: 40,
   },
   heading: {
-    fontSize: 30,
+    fontSize: 28,
     fontWeight: "bold",
     color: "#40317E",
     marginTop: 20,
   },
   subtitle: {
-    fontSize: 17,
+    fontSize: 16,
     color: "#6E668F",
     marginBottom: 25,
+    marginTop: 6,
+    lineHeight: 23,
   },
   gameCard: {
     backgroundColor: "#FFFFFF",
@@ -419,24 +664,32 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#E5DDFB",
   },
+  gameIcon: {
+    width: 55,
+    height: 55,
+    borderRadius: 17,
+    backgroundColor: "#EEE8FF",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 14,
+  },
+  gameEmoji: {
+    fontSize: 28,
+  },
   gameTitle: {
     fontSize: 23,
     fontWeight: "bold",
     color: "#40317E",
-    marginBottom: 12,
+    marginBottom: 8,
   },
   description: {
     fontSize: 16,
     color: "#6B6487",
     marginVertical: 10,
+    lineHeight: 24,
   },
-  button: {
-    backgroundColor: "#6C55CF",
-    color: "#FFFFFF",
-    textAlign: "center",
-    padding: 14,
-    borderRadius: 14,
-    overflow: "hidden",
+  cardButton: {
+    color: "#7955D9",
     fontSize: 17,
     fontWeight: "bold",
     marginTop: 12,
@@ -446,6 +699,30 @@ const styles = StyleSheet.create({
     padding: 18,
     borderRadius: 22,
     marginTop: 10,
+    borderWidth: 1,
+    borderColor: "#EAE7F1",
+  },
+  statsRow: {
+    flexDirection: "row",
+    gap: 12,
+    marginTop: 15,
+  },
+  statCard: {
+    flex: 1,
+    backgroundColor: "#F2EEFF",
+    borderRadius: 16,
+    padding: 14,
+    alignItems: "center",
+  },
+  statNumber: {
+    fontSize: 25,
+    fontWeight: "bold",
+    color: "#53349D",
+  },
+  statLabel: {
+    fontSize: 14,
+    color: "#6B6487",
+    marginTop: 4,
   },
   grid: {
     flexDirection: "row",
@@ -455,11 +732,16 @@ const styles = StyleSheet.create({
   },
   tile: {
     width: "47%",
-    height: 155,
+    height: 145,
     marginBottom: 15,
     borderRadius: 18,
     overflow: "hidden",
     backgroundColor: "#E7E0FF",
+    borderWidth: 2,
+    borderColor: "#E7E0FF",
+  },
+  matchedTile: {
+    borderColor: "#5DAA85",
   },
   tileImage: {
     width: "100%",
@@ -469,7 +751,7 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#6C55CF",
+    backgroundColor: "#7955D9",
   },
   questionMark: {
     fontSize: 48,
@@ -478,22 +760,32 @@ const styles = StyleSheet.create({
   },
   objectImage: {
     width: "100%",
-    height: 230,
+    height: 220,
     borderRadius: 20,
     marginVertical: 15,
     resizeMode: "cover",
+    backgroundColor: "#EEE8FF",
+  },
+  questionCount: {
+    fontSize: 15,
+    color: "#7955D9",
+    fontWeight: "bold",
+    marginTop: 10,
   },
   options: {
     flexDirection: "row",
     flexWrap: "wrap",
     justifyContent: "space-between",
+    marginTop: 10,
   },
   option: {
     width: "47%",
-    backgroundColor: "#EAE5FF",
-    padding: 16,
+    backgroundColor: "#EEE8FF",
+    padding: 17,
     borderRadius: 15,
     marginBottom: 12,
+    borderWidth: 1,
+    borderColor: "#E5DDFB",
   },
   optionText: {
     textAlign: "center",
@@ -501,56 +793,131 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: "bold",
   },
+  correctOption: {
+    backgroundColor: "#E5F5EC",
+    borderColor: "#5DAA85",
+  },
+  correctOptionText: {
+    color: "#26734F",
+  },
   feedback: {
     textAlign: "center",
-    fontSize: 18,
-    color: "#17854A",
+    fontSize: 17,
+    color: "#26734F",
     fontWeight: "bold",
     marginVertical: 12,
+    minHeight: 25,
+  },
+  neutralFeedback: {
+    color: "#7955D9",
+  },
+  progressContainer: {
+    height: 9,
+    backgroundColor: "#EEE8FF",
+    borderRadius: 10,
+    overflow: "hidden",
+    marginVertical: 12,
+  },
+  progressFill: {
+    height: "100%",
+    backgroundColor: "#7955D9",
+    borderRadius: 10,
+  },
+  routineProgress: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: 12,
+  },
+  routineProgressText: {
+    color: "#53349D",
+    fontWeight: "bold",
+    fontSize: 15,
   },
   routineCard: {
     flexDirection: "row",
     alignItems: "center",
     padding: 12,
-    backgroundColor: "#F7F5FF",
+    backgroundColor: "#F7F5FC",
     borderRadius: 18,
-    marginVertical: 10,
-    gap: 15,
+    marginVertical: 9,
+    gap: 14,
+    borderWidth: 1,
+    borderColor: "#EAE7F1",
+  },
+  completedRoutineCard: {
+    backgroundColor: "#F0F8F3",
+    borderColor: "#B9DEC9",
   },
   routineImage: {
-    width: 90,
-    height: 90,
+    width: 85,
+    height: 85,
     borderRadius: 15,
   },
+  routineDetails: {
+    flex: 1,
+  },
   routineName: {
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: "bold",
     color: "#40317E",
-    marginBottom: 8,
+    marginBottom: 5,
+  },
+  routineDescription: {
+    fontSize: 13,
+    color: "#77718C",
+    lineHeight: 18,
+  },
+  routineStatus: {
+    color: "#7955D9",
+    fontWeight: "bold",
+    marginTop: 7,
+    fontSize: 14,
+  },
+  completedStatus: {
+    color: "#26734F",
   },
   center: {
     alignItems: "center",
     padding: 20,
   },
   success: {
-    fontSize: 25,
+    fontSize: 22,
     fontWeight: "bold",
-    color: "#17854A",
+    color: "#26734F",
     textAlign: "center",
+    marginTop: 18,
   },
   score: {
     fontSize: 20,
     fontWeight: "bold",
     color: "#40317E",
     textAlign: "center",
+    marginTop: 18,
+  },
+  actionButton: {
+    backgroundColor: "#7955D9",
+    padding: 16,
+    borderRadius: 15,
     marginTop: 20,
+    width: "100%",
+  },
+  actionButtonText: {
+    color: "#FFFFFF",
+    textAlign: "center",
+    fontWeight: "bold",
+    fontSize: 16,
+  },
+  secondaryButton: {
+    backgroundColor: "#EEE8FF",
+  },
+  secondaryButtonText: {
+    color: "#53349D",
   },
   backButton: {
     backgroundColor: "#40317E",
-    padding: 15,
+    padding: 16,
     borderRadius: 15,
     marginTop: 20,
-    marginBottom: 30,
   },
   backText: {
     color: "#FFFFFF",
