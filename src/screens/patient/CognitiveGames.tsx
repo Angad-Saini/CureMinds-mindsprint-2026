@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { supabase } from "../../services/supabase";
 import {
   View,
   Text,
@@ -7,6 +8,33 @@ import {
   TouchableOpacity,
   StyleSheet,
 } from "react-native";
+
+const saveGameSession = async (
+  gameName: string,
+  score: number,
+  totalQuestions: number
+) => {
+  const { data: { user }, error: userError } =
+    await supabase.auth.getUser();
+
+  if (userError || !user) {
+    console.error("Unable to get patient:", userError);
+    return;
+  }
+
+  const { error } = await supabase
+    .from("patient_game_sessions")
+    .insert({
+      patient_id: user.id,
+      game_name: gameName,
+      score,
+      total_questions: totalQuestions,
+    });
+
+  if (error) {
+    console.error("Unable to save game session:", error);
+  }
+};
 
 const objects = [
   {
@@ -103,8 +131,9 @@ export default function CognitiveGames() {
         setSelected([]);
 
         if (newMatched.length === cards.length) {
-          setCompleted(true);
-        }
+  setCompleted(true);
+  saveGameSession("Memory Match", score + 1, cards.length / 2);
+}
       } else {
         setTimeout(() => setSelected([]), 900);
       }
@@ -120,26 +149,32 @@ export default function CognitiveGames() {
   };
 
   const answerObject = (answer: string) => {
-    if (feedback !== "") return;
+  if (feedback !== "") return;
 
-    const correct = objects[question].name;
+  const correct = objects[question].name;
+  const nextScore = answer === correct ? score + 1 : score;
 
-    if (answer === correct) {
-      setScore((s) => s + 1);
-      setFeedback("Correct! Well done.");
+  if (answer === correct) {
+    setScore(nextScore);
+    setFeedback("Correct! Well done.");
+  } else {
+    setFeedback("Try again next time!");
+  }
+
+  setTimeout(() => {
+    if (question < objects.length - 1) {
+      setQuestion((q) => q + 1);
+      setFeedback("");
     } else {
-      setFeedback("Try again next time!");
+      setCompleted(true);
+      saveGameSession(
+        "Object Recognition",
+        nextScore,
+        objects.length
+      );
     }
-
-    setTimeout(() => {
-      if (question < objects.length - 1) {
-        setQuestion((q) => q + 1);
-        setFeedback("");
-      } else {
-        setCompleted(true);
-      }
-    }, 1200);
-  };
+  }, 1200);
+};
 
   const toggleRoutine = (index: number) => {
     setRoutineDone((prev) =>

@@ -25,21 +25,59 @@ export default function DashboardScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
 
+  const [taskStats, setTaskStats] = useState<{
+  total: number;
+  completed: number;
+  pending: number;
+} | null>(null);
+
   const fetchPatients = useCallback(async () => {
-    setError("");
+  setError("");
 
-    const { data, error } = await supabase.rpc("get_my_patients");
+  const { data, error } = await supabase.rpc("get_my_patients");
 
-    if (error) {
-      setError(error.message);
-      setPatients([]);
+  if (error) {
+    setError(error.message);
+    setPatients([]);
+    setTaskStats(null);
+  } else {
+    const patientData = data || [];
+    setPatients(patientData);
+
+    const patientIds = patientData.map(
+      (patient: Patient) => patient.patient_id
+    );
+
+    if (patientIds.length === 0) {
+      setTaskStats({ total: 0, completed: 0, pending: 0 });
     } else {
-      setPatients(data || []);
-    }
+      const { data: tasks, error: taskError } = await supabase
+        .from("patient_tasks")
+        .select("is_completed")
+        .in("patient_id", patientIds);
 
-    setLoading(false);
-    setRefreshing(false);
-  }, []);
+      if (taskError) {
+        console.error("Task stats error:", taskError.message);
+        setTaskStats(null);
+      } else {
+        const taskList = tasks || [];
+        const total = taskList.length;
+        const completed = taskList.filter(
+          (task) => task.is_completed
+        ).length;
+
+        setTaskStats({
+          total,
+          completed,
+          pending: total - completed,
+        });
+      }
+    }
+  }
+
+  setLoading(false);
+  setRefreshing(false);
+}, []);
 
   useEffect(() => {
     fetchPatients();
@@ -94,6 +132,30 @@ export default function DashboardScreen() {
           </View>
         </View>
       </LinearGradient>
+
+      <View style={styles.statsGrid}>
+  <View style={styles.statCard}>
+    <Text style={styles.statLabel}>TOTAL TASKS</Text>
+    <Text style={styles.statNumber}>
+      {taskStats?.total ?? "—"}
+    </Text>
+  </View>
+
+  <View style={styles.statCard}>
+    <Text style={styles.statLabel}>COMPLETED</Text>
+    <Text style={[styles.statNumber, { color: "#319765" }]}>
+      {taskStats?.completed ?? "—"}
+    </Text>
+  </View>
+
+  <View style={styles.statCard}>
+    <Text style={styles.statLabel}>PENDING</Text>
+    <Text style={[styles.statNumber, { color: "#D99535" }]}>
+      {taskStats?.pending ?? "—"}
+    </Text>
+  </View>
+</View>
+
 
       <View style={styles.sectionHeader}>
         <View>
@@ -355,4 +417,32 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: "800",
   },
+  statsGrid: {
+  flexDirection: "row",
+  gap: 10,
+  marginBottom: 28,
+},
+
+statCard: {
+  flex: 1,
+  backgroundColor: "#FFFFFF",
+  borderRadius: 17,
+  padding: 15,
+  borderWidth: 1,
+  borderColor: "#EEEAF5",
+},
+
+statLabel: {
+  color: "#9690A3",
+  fontSize: 9,
+  fontWeight: "800",
+  letterSpacing: 0.5,
+},
+
+statNumber: {
+  color: "#241B35",
+  fontSize: 27,
+  fontWeight: "800",
+  marginTop: 9,
+},
 });

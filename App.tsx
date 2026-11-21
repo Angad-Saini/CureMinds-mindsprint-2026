@@ -45,7 +45,6 @@ import {
   Sparkles,
   Clock,
   Heart,
-  MessageCircle,
 } from "lucide-react-native";
 
 type Task = {
@@ -55,6 +54,14 @@ type Task = {
   time: string;
   icon: "pill" | "water" | "game";
   completed: boolean;
+};
+
+type Routine = {
+  id: string;
+  title: string;
+  description: string;
+  scheduled_at: string;
+  is_completed: boolean;
 };
 
 type UserRole = "patient" | "caretaker";
@@ -90,14 +97,9 @@ function LanguageSelector() {
 
   return (
     <View style={styles.languageSection}>
-      <Text style={styles.languageTitle}>
-        {t("language")}
-      </Text>
+      <Text style={styles.languageTitle}>{t("language")}</Text>
 
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-      >
+      <ScrollView horizontal showsHorizontalScrollIndicator={false}>
         <View style={styles.languageOptions}>
           {supportedLanguages.map((language) => {
             const active = currentLanguage === language;
@@ -106,9 +108,7 @@ function LanguageSelector() {
               <TouchableOpacity
                 key={language}
                 activeOpacity={0.75}
-                onPress={() => {
-                  void changeAppLanguage(language);
-                }}
+                onPress={() => void changeAppLanguage(language)}
                 style={[
                   styles.languageButton,
                   active && styles.activeLanguageButton,
@@ -137,13 +137,8 @@ function Header() {
   return (
     <View style={styles.header}>
       <View>
-        <Text style={styles.brand}>
-          {t("appName")}
-        </Text>
-
-        <Text style={styles.brandSub}>
-          {t("homeSubtitle")}
-        </Text>
+        <Text style={styles.brand}>{t("appName")}</Text>
+        <Text style={styles.brandSub}>{t("homeSubtitle")}</Text>
       </View>
 
       <View style={styles.profileIcon}>
@@ -187,10 +182,7 @@ function TaskCard({
 
         <View style={styles.timeRow}>
           <Clock size={13} color={COLORS.secondary} />
-
-          <Text style={styles.taskTime}>
-            {task.time}
-          </Text>
+          <Text style={styles.taskTime}>{task.time}</Text>
         </View>
       </View>
 
@@ -214,7 +206,6 @@ function TaskCard({
 function PairingCodeCard() {
   const [code, setCode] = useState("");
   const [loading, setLoading] = useState(false);
-
   const { t } = useTranslation();
 
   const generateCode = async () => {
@@ -227,10 +218,7 @@ function PairingCodeCard() {
     setLoading(false);
 
     if (error) {
-      Alert.alert(
-        "Unable to generate code",
-        error.message
-      );
+      Alert.alert("Unable to generate code", error.message);
       return;
     }
 
@@ -253,9 +241,7 @@ function PairingCodeCard() {
             {t("pairingCode")}
           </Text>
 
-          <Text style={styles.pairingCode}>
-            {code}
-          </Text>
+          <Text style={styles.pairingCode}>{code}</Text>
 
           <Text style={styles.pairingExpiry}>
             {t("expiresIn")}
@@ -281,14 +267,107 @@ function PairingCodeCard() {
   );
 }
 
+function DailyRoutine({ routines }: { routines: Routine[] }) {
+  const today = new Date();
+
+  const todaysRoutines = routines.filter((item) => {
+    const date = new Date(item.scheduled_at);
+
+    return (
+      date.getDate() === today.getDate() &&
+      date.getMonth() === today.getMonth() &&
+      date.getFullYear() === today.getFullYear()
+    );
+  });
+
+  const completed = todaysRoutines.filter(
+    (item) => item.is_completed
+  ).length;
+
+  return (
+    <View style={styles.routineSection}>
+      <View style={styles.sectionHeader}>
+        <View>
+          <Text style={styles.sectionTitle}>Daily Routine</Text>
+          <Text style={styles.sectionSub}>
+            Your planned activities
+          </Text>
+        </View>
+
+        <View style={styles.progressBadge}>
+          <Text style={styles.progressText}>
+            {completed}/{todaysRoutines.length}
+          </Text>
+        </View>
+      </View>
+
+      {todaysRoutines.length === 0 ? (
+        <Text style={styles.emptyTasks}>
+          No routines scheduled for today.
+        </Text>
+      ) : (
+        <View style={styles.routineList}>
+          {todaysRoutines.map((item) => (
+            <View key={item.id} style={styles.routineCard}>
+              <View style={styles.routineTime}>
+                <Clock size={17} color={COLORS.primary} />
+                <Text style={styles.routineTimeText}>
+                  {new Date(item.scheduled_at).toLocaleTimeString(
+                    "en-IN",
+                    {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    }
+                  )}
+                </Text>
+              </View>
+
+              <View style={styles.routineInfo}>
+                <Text style={styles.routineTitle}>
+                  {item.title}
+                </Text>
+
+                {!!item.description && (
+                  <Text style={styles.routineDescription}>
+                    {item.description}
+                  </Text>
+                )}
+              </View>
+
+              <View
+                style={[
+                  styles.routineStatus,
+                  item.is_completed && styles.routineCompleted,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.routineStatusText,
+                    item.is_completed &&
+                      styles.routineCompletedText,
+                  ]}
+                >
+                  {item.is_completed ? "Done" : "Planned"}
+                </Text>
+              </View>
+            </View>
+          ))}
+        </View>
+      )}
+    </View>
+  );
+}
+
 function HomeScreen({
   patientName,
   tasks,
+  routines,
   toggleTask,
   openAssistant,
 }: {
   patientName: string;
   tasks: Task[];
+  routines: Routine[];
   toggleTask: (id: string) => void;
   openAssistant: () => void;
 }) {
@@ -336,7 +415,6 @@ function HomeScreen({
           <View style={styles.aiTop}>
             <View style={styles.aiTag}>
               <Sparkles size={14} color="#FFFFFF" />
-
               <Text style={styles.aiTagText}>
                 {t("yourAICompanion")}
               </Text>
@@ -408,6 +486,8 @@ function HomeScreen({
         )}
       </View>
 
+      <DailyRoutine routines={routines} />
+
       {tasks.length > 0 && completed === tasks.length && (
         <View style={styles.allTasksDone}>
           <Text style={styles.allTasksDoneText}>
@@ -446,7 +526,6 @@ function AssistantScreen({
 }) {
   const [command, setCommand] = useState("");
   const [response, setResponse] = useState("");
-
   const { t } = useTranslation();
 
   const handleCommand = () => {
@@ -461,7 +540,7 @@ function AssistantScreen({
 
     const activityWords = [
       "activity", "activities", "games", "game",
-      "खेल", "खेळ", "चಟುವಟಿಕೆಗಳು", "விளையாட்டுகள்",
+      "खेल", "खेळ", "ಚಟುವಟಿಕೆಗಳು", "விளையாட்டுகள்",
     ];
 
     const taskWords = [
@@ -550,9 +629,7 @@ function AssistantScreen({
             onPress={handleCommand}
             style={styles.commandButton}
           >
-            <Text style={styles.commandButtonText}>
-              Send
-            </Text>
+            <Text style={styles.commandButtonText}>Send</Text>
           </TouchableOpacity>
         </View>
 
@@ -582,6 +659,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState("home");
   const [caretakerTab, setCaretakerTab] = useState("dashboard");
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [routines, setRoutines] = useState<Routine[]>([]);
 
   const { t } = useTranslation();
 
@@ -664,6 +742,7 @@ export default function App() {
     };
   }, []);
 
+  // Fetch patient tasks
   useEffect(() => {
     if (role !== "patient") {
       setTasks([]);
@@ -727,6 +806,60 @@ export default function App() {
     };
   }, [role]);
 
+  // Fetch patient schedules
+  useEffect(() => {
+    if (role !== "patient") {
+      setRoutines([]);
+      return;
+    }
+
+    let active = true;
+
+    const fetchRoutines = async () => {
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser();
+
+      if (userError || !user || !active) return;
+
+      const { data, error } = await supabase
+        .from("patient_schedules")
+        .select(
+          "id, title, description, scheduled_at, is_completed"
+        )
+        .eq("patient_id", user.id)
+        .order("scheduled_at", { ascending: true });
+
+//         console.log("Patient ID:", user.id);
+// console.log("Routine fetch error:", error);
+// console.log("Fetched routines:", data);
+
+      if (!active) return;
+
+      if (error) {
+        console.error(
+          "Unable to fetch patient routines:",
+          error.message
+        );
+        return;
+      }
+
+      setRoutines(data || []);
+    };
+
+    void fetchRoutines();
+
+    const interval = setInterval(() => {
+      void fetchRoutines();
+    }, 5000);
+
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
+  }, [role]);
+
   const toggleTask = async (id: string) => {
     const task = tasks.find((item) => item.id === id);
 
@@ -740,10 +873,7 @@ export default function App() {
       .eq("id", id);
 
     if (error) {
-      Alert.alert(
-        "Unable to update task",
-        error.message
-      );
+      Alert.alert("Unable to update task", error.message);
       return;
     }
 
@@ -781,16 +911,12 @@ export default function App() {
       switch (caretakerTab) {
         case "patients":
           return <PatientsScreen />;
-
         case "tasks":
           return <TasksScreen />;
-
         case "schedule":
           return <ScheduleScreen />;
-
         case "progress":
           return <ProgressScreen />;
-
         default:
           return <DashboardScreen />;
       }
@@ -850,10 +976,7 @@ export default function App() {
             }}
           >
             <Text style={styles.logoutIcon}>↪</Text>
-
-            <Text style={styles.logoutLabel}>
-              Logout
-            </Text>
+            <Text style={styles.logoutLabel}>Logout</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
@@ -869,21 +992,20 @@ export default function App() {
           <HomeScreen
             patientName={patientName}
             tasks={tasks}
+            routines={routines}
             toggleTask={toggleTask}
             openAssistant={openAssistant}
           />
         )}
 
         {activeTab === "assistant" && (
-  <AssistantScreen
-    goBack={() => setActiveTab("home")}
-    navigateTo={setActiveTab}
-  />
-)}
-
-        {activeTab === "activities" && (
-          <CognitiveGames />
+          <AssistantScreen
+            goBack={() => setActiveTab("home")}
+            navigateTo={setActiveTab}
+          />
         )}
+
+        {activeTab === "activities" && <CognitiveGames />}
       </View>
 
       {activeTab !== "assistant" && (
@@ -939,14 +1061,8 @@ export default function App() {
             onPress={openAssistant}
             style={styles.navItem}
           >
-            <Mic
-              size={24}
-              color={COLORS.secondary}
-            />
-
-            <Text style={styles.navLabel}>
-              {t("talk")}
-            </Text>
+            <Mic size={24} color={COLORS.secondary} />
+            <Text style={styles.navLabel}>{t("talk")}</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -956,7 +1072,6 @@ export default function App() {
             style={styles.navItem}
           >
             <Text style={styles.logoutIcon}>↪</Text>
-
             <Text style={styles.logoutLabel}>
               {t("logout")}
             </Text>
@@ -1474,14 +1589,14 @@ const styles = StyleSheet.create({
   },
 
   micCircle: {
-  width: 155,
-  height: 155,
-  borderRadius: 78,
-  backgroundColor: COLORS.primary,
-  alignItems: "center",
-  justifyContent: "center",
-  elevation: 9,
-},
+    width: 155,
+    height: 155,
+    borderRadius: 78,
+    backgroundColor: COLORS.primary,
+    alignItems: "center",
+    justifyContent: "center",
+    elevation: 9,
+  },
 
   listeningText: {
     fontSize: 19,
@@ -1564,52 +1679,123 @@ const styles = StyleSheet.create({
   },
 
   commandContainer: {
-  width: "100%",
-  flexDirection: "row",
-  alignItems: "center",
-  gap: 10,
-},
+    width: "100%",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
 
-commandInput: {
-  flex: 1,
-  backgroundColor: COLORS.surface,
-  borderRadius: 14,
-  paddingHorizontal: 15,
-  paddingVertical: 15,
-  borderWidth: 1,
-  borderColor: COLORS.border,
-  color: COLORS.text,
-  fontSize: 14,
-},
+  commandInput: {
+    flex: 1,
+    backgroundColor: COLORS.surface,
+    borderRadius: 14,
+    paddingHorizontal: 15,
+    paddingVertical: 15,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    color: COLORS.text,
+    fontSize: 14,
+  },
 
-commandButton: {
-  backgroundColor: COLORS.primary,
-  paddingHorizontal: 20,
-  paddingVertical: 15,
-  borderRadius: 14,
-},
+  commandButton: {
+    backgroundColor: COLORS.primary,
+    paddingHorizontal: 20,
+    paddingVertical: 15,
+    borderRadius: 14,
+  },
 
-commandButtonText: {
-  color: "#FFFFFF",
-  fontWeight: "800",
-},
+  commandButtonText: {
+    color: "#FFFFFF",
+    fontWeight: "800",
+  },
 
-responseCard: {
-  width: "100%",
-  flexDirection: "row",
-  alignItems: "center",
-  gap: 12,
-  backgroundColor: COLORS.lavender,
-  borderRadius: 15,
-  padding: 15,
-},
+  responseCard: {
+    width: "100%",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    backgroundColor: COLORS.lavender,
+    borderRadius: 15,
+    padding: 15,
+  },
 
-responseText: {
-  flex: 1,
-  color: COLORS.primaryDark,
-  fontSize: 13,
-  fontWeight: "600",
-  lineHeight: 20,
-},
+  responseText: {
+    flex: 1,
+    color: COLORS.primaryDark,
+    fontSize: 13,
+    fontWeight: "600",
+    lineHeight: 20,
+  },
+
+  routineSection: {
+    marginTop: 25,
+    marginBottom: 15,
+  },
+
+  routineList: {
+    gap: 10,
+  },
+
+  routineCard: {
+    backgroundColor: COLORS.surface,
+    borderRadius: 16,
+    padding: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+
+  routineTime: {
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: COLORS.lavender,
+    borderRadius: 12,
+    padding: 10,
+    gap: 5,
+  },
+
+  routineTimeText: {
+    fontSize: 11,
+    fontWeight: "800",
+    color: COLORS.primaryDark,
+  },
+
+  routineInfo: {
+    flex: 1,
+  },
+
+  routineTitle: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: COLORS.text,
+  },
+
+  routineDescription: {
+    fontSize: 11,
+    color: COLORS.secondary,
+    marginTop: 4,
+  },
+
+  routineStatus: {
+    backgroundColor: COLORS.lavender,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 9,
+  },
+
+  routineCompleted: {
+    backgroundColor: COLORS.greenLight,
+  },
+
+  routineStatusText: {
+    fontSize: 10,
+    fontWeight: "800",
+    color: COLORS.primaryDark,
+  },
+
+  routineCompletedText: {
+    color: COLORS.green,
+  },
 });
-
