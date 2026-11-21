@@ -1,5 +1,14 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import CognitiveGames from "./src/screens/patient/CognitiveGames";
+import LoginScreen from "./src/screens/auth/LoginScreen";
+import { supabase } from "./src/services/supabase";
+
+import DashboardScreen from "./src/screens/caretaker/DashboardScreen";
+import PatientsScreen from "./src/screens/caretaker/PatientsScreen";
+import TasksScreen from "./src/screens/caretaker/TasksScreen";
+import ScheduleScreen from "./src/screens/caretaker/ScheduleScreen";
+import ProgressScreen from "./src/screens/caretaker/ProgressScreen";
+
 import {
   View,
   Text,
@@ -7,6 +16,7 @@ import {
   ScrollView,
   StyleSheet,
   StatusBar,
+  Alert
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -89,7 +99,7 @@ function Header() {
   return (
     <View style={styles.header}>
       <View>
-        <Text style={styles.brand}>[APP NAME]</Text>
+        <Text style={styles.brand}>CureMinds</Text>
         <Text style={styles.brandSub}>YOUR DAILY COMPANION</Text>
       </View>
       <View style={styles.profileIcon}>
@@ -145,15 +155,130 @@ function TaskCard({
   );
 }
 
+
+function PairingCodeCard() {
+  const [code, setCode] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const generateCode = async () => {
+    setLoading(true);
+
+    const { data, error } = await supabase.rpc(
+      "create_patient_link_code"
+    );
+
+    setLoading(false);
+
+    if (error) {
+      Alert.alert("Unable to generate code", error.message);
+      return;
+    }
+
+    setCode(data);
+  };
+
+  return (
+    <View style={{
+      backgroundColor: "#FFFFFF",
+      borderRadius: 20,
+      padding: 20,
+      marginBottom: 25,
+      borderWidth: 1,
+      borderColor: COLORS.border,
+    }}>
+      <Text style={{
+        fontSize: 17,
+        fontWeight: "800",
+        color: COLORS.text,
+      }}>
+        Connect with your caretaker
+      </Text>
+
+      <Text style={{
+        fontSize: 13,
+        color: COLORS.secondary,
+        marginTop: 7,
+        lineHeight: 20,
+      }}>
+        Generate a code and share it with your caretaker to connect your accounts.
+      </Text>
+
+      {code ? (
+        <View style={{
+          backgroundColor: COLORS.lavender,
+          padding: 17,
+          borderRadius: 14,
+          alignItems: "center",
+          marginTop: 17,
+        }}>
+          <Text style={{
+            fontSize: 11,
+            color: COLORS.primaryDark,
+            fontWeight: "700",
+            letterSpacing: 1.5,
+          }}>
+            YOUR PAIRING CODE
+          </Text>
+
+          <Text style={{
+            fontSize: 34,
+            fontWeight: "900",
+            color: COLORS.primaryDark,
+            letterSpacing: 8,
+            marginTop: 8,
+          }}>
+            {code}
+          </Text>
+
+          <Text style={{
+            fontSize: 11,
+            color: COLORS.secondary,
+            marginTop: 8,
+          }}>
+            Expires in 15 minutes
+          </Text>
+        </View>
+      ) : null}
+
+      <TouchableOpacity
+        onPress={generateCode}
+        disabled={loading}
+        style={{
+          backgroundColor: COLORS.primary,
+          padding: 15,
+          borderRadius: 12,
+          alignItems: "center",
+          marginTop: 16,
+        }}
+      >
+        <Text style={{
+          color: "#FFFFFF",
+          fontWeight: "800",
+          fontSize: 13,
+        }}>
+          {loading
+            ? "Generating..."
+            : code
+            ? "Generate New Code"
+            : "Generate Pairing Code"}
+        </Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+
 function HomeScreen({
+  patientName,
   tasks,
   toggleTask,
   openAssistant,
 }: {
+  patientName: string;
   tasks: Task[];
   toggleTask: (id: number) => void;
   openAssistant: () => void;
-}) {
+})  {
   const completed = tasks.filter((task) => task.completed).length;
 
   return (
@@ -165,11 +290,15 @@ function HomeScreen({
 
       <View style={styles.greeting}>
         <Text style={styles.greetingSmall}>GOOD MORNING ☀️</Text>
-        <Text style={styles.greetingTitle}>Hello, [Patient Name]!</Text>
+        <Text style={styles.greetingTitle}>
+  Hello, {patientName}!
+</Text>
         <Text style={styles.greetingSub}>
           It's a beautiful day. Let's make it a good one.
         </Text>
       </View>
+
+      <PairingCodeCard />
 
       <TouchableOpacity
         activeOpacity={0.9}
@@ -321,9 +450,73 @@ function AssistantScreen({ goBack }: { goBack: () => void }) {
   );
 }
 
+type UserRole = "patient" | "caretaker";
+
+
 export default function App() {
+  const [role, setRole] = useState<UserRole | null>(null);
+  const [patientName, setPatientName] = useState("");
+  const [authReady, setAuthReady] = useState(false);
+
   const [activeTab, setActiveTab] = useState("home");
+  const [caretakerTab, setCaretakerTab] = useState("dashboard");
   const [tasks, setTasks] = useState(initialTasks);
+
+  useEffect(() => {
+    let mounted = true;
+
+    const loadRole = async (userId: string | null) => {
+      if (!userId) {
+  if (mounted) {
+    setRole(null);
+    setPatientName("");
+    setAuthReady(true);
+  }
+  return;
+}
+
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("role, full_name")
+        .eq("id", userId)
+        .single();
+
+      if (!mounted) return;
+
+      if (error || !data || !["patient", "caretaker"].includes(data.role)) {
+  await supabase.auth.signOut();
+
+  if (mounted) {
+    setRole(null);
+    setPatientName("");
+  }
+} else {
+  const userRole = data.role as UserRole;
+
+  setRole(userRole);
+  setPatientName(data.full_name || "Patient");
+  setActiveTab("home");
+  setCaretakerTab("dashboard");
+}
+
+      if (mounted) setAuthReady(true);
+    };
+
+    supabase.auth.getSession().then(({ data }) => {
+      void loadRole(data.session?.user.id ?? null);
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      void loadRole(session?.user.id ?? null);
+    });
+
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
+  }, []);
 
   const toggleTask = (id: number) => {
     setTasks((previous) =>
@@ -337,17 +530,115 @@ export default function App() {
 
   const openAssistant = () => setActiveTab("assistant");
 
+  if (!authReady) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.loadingContainer}>
+          <Text style={styles.loadingText}>Loading CureMinds...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (!role) {
+    return <LoginScreen onLogin={setRole} />;
+  }
+
+  if (role === "caretaker") {
+    const renderCaretakerScreen = () => {
+      switch (caretakerTab) {
+        case "patients":
+          return <PatientsScreen />;
+        case "tasks":
+          return <TasksScreen />;
+        case "schedule":
+          return <ScheduleScreen />;
+        case "progress":
+          return <ProgressScreen />;
+        default:
+          return <DashboardScreen />;
+      }
+    };
+
+    const caretakerTabs = [
+      { id: "dashboard", label: "Home", icon: "⌂" },
+      { id: "patients", label: "Patients", icon: "♙" },
+      { id: "tasks", label: "Tasks", icon: "✓" },
+      { id: "schedule", label: "Schedule", icon: "▦" },
+      { id: "progress", label: "Progress", icon: "↗" },
+    ];
+
+    return (
+      <SafeAreaView style={styles.container}>
+        <StatusBar
+          barStyle="dark-content"
+          backgroundColor={COLORS.background}
+        />
+
+        <View style={{ flex: 1 }}>
+          {renderCaretakerScreen()}
+        </View>
+
+        <View style={styles.bottomNav}>
+          {caretakerTabs.map((tab) => {
+            const active = caretakerTab === tab.id;
+
+            return (
+              <TouchableOpacity
+                key={tab.id}
+                onPress={() => setCaretakerTab(tab.id)}
+                style={styles.navItem}
+              >
+                <Text
+                  style={[
+                    styles.caretakerNavIcon,
+                    active && styles.activeCaretakerNav,
+                  ]}
+                >
+                  {tab.icon}
+                </Text>
+
+                <Text
+                  style={[
+                    styles.navLabel,
+                    active && styles.activeNavLabel,
+                  ]}
+                >
+                  {tab.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+
+          <TouchableOpacity
+            style={styles.navItem}
+            onPress={() => {
+              void supabase.auth.signOut();
+            }}
+          >
+            <Text style={styles.logoutIcon}>↪</Text>
+            <Text style={styles.logoutLabel}>Logout</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="dark-content" backgroundColor={COLORS.background} />
+      <StatusBar
+        barStyle="dark-content"
+        backgroundColor={COLORS.background}
+      />
 
       <View style={{ flex: 1 }}>
         {activeTab === "home" && (
           <HomeScreen
-            tasks={tasks}
-            toggleTask={toggleTask}
-            openAssistant={openAssistant}
-          />
+  patientName={patientName}
+  tasks={tasks}
+  toggleTask={toggleTask}
+  openAssistant={openAssistant}
+/>
         )}
 
         {activeTab === "assistant" && (
@@ -367,7 +658,12 @@ export default function App() {
               size={24}
               color={activeTab === "home" ? COLORS.primary : COLORS.secondary}
             />
-            <Text style={[styles.navLabel, activeTab === "home" && styles.activeNavLabel]}>
+            <Text
+              style={[
+                styles.navLabel,
+                activeTab === "home" && styles.activeNavLabel,
+              ]}
+            >
               Home
             </Text>
           </TouchableOpacity>
@@ -378,9 +674,18 @@ export default function App() {
           >
             <Brain
               size={24}
-              color={activeTab === "activities" ? COLORS.primary : COLORS.secondary}
+              color={
+                activeTab === "activities"
+                  ? COLORS.primary
+                  : COLORS.secondary
+              }
             />
-            <Text style={[styles.navLabel, activeTab === "activities" && styles.activeNavLabel]}>
+            <Text
+              style={[
+                styles.navLabel,
+                activeTab === "activities" && styles.activeNavLabel,
+              ]}
+            >
               Activities
             </Text>
           </TouchableOpacity>
@@ -392,11 +697,22 @@ export default function App() {
             <Mic size={24} color={COLORS.secondary} />
             <Text style={styles.navLabel}>Talk</Text>
           </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={() => {
+              void supabase.auth.signOut();
+            }}
+            style={styles.navItem}
+          >
+            <Text style={styles.logoutIcon}>↪</Text>
+            <Text style={styles.logoutLabel}>Logout</Text>
+          </TouchableOpacity>
         </View>
       )}
     </SafeAreaView>
   );
 }
+
 
 const styles = StyleSheet.create({
   container: {
@@ -794,4 +1110,36 @@ const styles = StyleSheet.create({
     lineHeight: 23,
     marginTop: 10,
   },
+  loadingContainer: {
+  flex: 1,
+  alignItems: "center",
+  justifyContent: "center",
+},
+
+loadingText: {
+  color: COLORS.primaryDark,
+  fontSize: 17,
+  fontWeight: "800",
+},
+
+caretakerNavIcon: {
+  fontSize: 21,
+  color: COLORS.secondary,
+},
+
+activeCaretakerNav: {
+  color: COLORS.primary,
+  fontWeight: "800",
+},
+
+logoutIcon: {
+  fontSize: 21,
+  color: "#D65D72",
+},
+
+logoutLabel: {
+  fontSize: 11,
+  fontWeight: "600",
+  color: "#D65D72",
+},
 });

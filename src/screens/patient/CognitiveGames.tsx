@@ -157,7 +157,7 @@ export default function CognitiveGames() {
 
   return (
     <ScrollView style={styles.container}>
-      <Text style={styles.heading}>MindCare 🌷</Text>
+      <Text style={styles.heading}>CureMinds</Text>
       <Text style={styles.subtitle}>
         Let's play and keep our minds active!
       </Text>

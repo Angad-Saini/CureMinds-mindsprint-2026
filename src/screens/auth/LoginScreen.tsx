@@ -78,7 +78,13 @@ export default function LoginScreen({ onLogin }: Props) {
         .eq("id", userData.user.id)
         .single();
 
-      if (profileError) throw profileError;
+      if (profileError) {
+  console.log("PROFILE ERROR:", JSON.stringify(profileError, null, 2));
+
+  throw new Error(
+    `Profile error: ${profileError.message} | Code: ${profileError.code}`
+  );
+}
 
       if (profile.role !== "patient" && profile.role !== "caretaker") {
         throw new Error("Your account does not have a valid role.");
