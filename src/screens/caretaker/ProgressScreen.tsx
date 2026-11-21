@@ -17,12 +17,22 @@ type Patient = {
 
 type GameSession = {
   game_name: string;
+  score: number;
+  total_questions: number;
   completed_at: string;
 };
 
 type DayProgress = {
   label: string;
   completed: number;
+};
+
+type GamePerformance = {
+  name: string;
+  played: number;
+  score: number;
+  total: number;
+  percentage: number;
 };
 
 export default function ProgressScreen() {
@@ -33,10 +43,15 @@ export default function ProgressScreen() {
 
   const [completed, setCompleted] = useState(0);
   const [total, setTotal] = useState(0);
+
   const [gamesPlayed, setGamesPlayed] = useState(0);
+  const [averageScore, setAverageScore] = useState(0);
   const [mostPlayed, setMostPlayed] = useState("No games played yet");
   const [mostPlayedCount, setMostPlayedCount] = useState(0);
+
   const [weeklyProgress, setWeeklyProgress] = useState<DayProgress[]>([]);
+  const [gamePerformance, setGamePerformance] = useState<GamePerformance[]>([]);
+  const [recentGames, setRecentGames] = useState<GameSession[]>([]);
 
   useEffect(() => {
     const fetchPatients = async () => {
@@ -94,10 +109,11 @@ export default function ProgressScreen() {
 
           supabase
             .from("patient_game_sessions")
-            .select("game_name, completed_at")
+            .select("game_name, score, total_questions, completed_at")
             .eq("patient_id", selectedPatient)
             .gte("completed_at", startISO)
-            .lte("completed_at", nowISO),
+            .lte("completed_at", nowISO)
+            .order("completed_at", { ascending: false }),
         ]);
 
       if (tasksResult.error) {
@@ -126,12 +142,48 @@ export default function ProgressScreen() {
       setTotal(allActivities.length);
 
       setGamesPlayed(games.length);
+      setRecentGames(games.slice(0, 5));
+
+      const totalCorrect = games.reduce(
+        (sum, game) => sum + Number(game.score || 0),
+        0
+      );
+
+      const totalQuestions = games.reduce(
+        (sum, game) => sum + Number(game.total_questions || 0),
+        0
+      );
+
+      const average =
+        totalQuestions > 0
+          ? Math.round((totalCorrect / totalQuestions) * 100)
+          : 0;
+
+      setAverageScore(average);
 
       const gameCounts: Record<string, number> = {};
+      const gameStats: Record<
+        string,
+        { played: number; score: number; total: number }
+      > = {};
 
       games.forEach((game) => {
         gameCounts[game.game_name] =
           (gameCounts[game.game_name] || 0) + 1;
+
+        if (!gameStats[game.game_name]) {
+          gameStats[game.game_name] = {
+            played: 0,
+            score: 0,
+            total: 0,
+          };
+        }
+
+        gameStats[game.game_name].played += 1;
+        gameStats[game.game_name].score += Number(game.score || 0);
+        gameStats[game.game_name].total += Number(
+          game.total_questions || 0
+        );
       });
 
       const mostPlayedGame = Object.entries(gameCounts).sort(
@@ -140,6 +192,21 @@ export default function ProgressScreen() {
 
       setMostPlayed(mostPlayedGame?.[0] || "No games played yet");
       setMostPlayedCount(mostPlayedGame?.[1] || 0);
+
+      const performance = Object.entries(gameStats).map(
+        ([name, stats]) => ({
+          name,
+          played: stats.played,
+          score: stats.score,
+          total: stats.total,
+          percentage:
+            stats.total > 0
+              ? Math.round((stats.score / stats.total) * 100)
+              : 0,
+        })
+      );
+
+      setGamePerformance(performance);
 
       const days: DayProgress[] = [];
 
@@ -151,14 +218,14 @@ export default function ProgressScreen() {
 
         const dayTasks = tasks.filter(
           (item) =>
-            new Date(item.created_at).toLocaleDateString("en-CA") === dayKey &&
-            item.is_completed
+            new Date(item.created_at).toLocaleDateString("en-CA") ===
+              dayKey && item.is_completed
         );
 
         const dayRoutines = routines.filter(
           (item) =>
-            new Date(item.scheduled_at).toLocaleDateString("en-CA") === dayKey &&
-            item.is_completed
+            new Date(item.scheduled_at).toLocaleDateString("en-CA") ===
+              dayKey && item.is_completed
         );
 
         days.push({
@@ -184,6 +251,15 @@ export default function ProgressScreen() {
     ...weeklyProgress.map((day) => day.completed)
   );
 
+  const formatDate = (date: string) => {
+    return new Date(date).toLocaleDateString("en-IN", {
+      day: "numeric",
+      month: "short",
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  };
+
   if (loading) {
     return (
       <View style={styles.center}>
@@ -205,8 +281,13 @@ export default function ProgressScreen() {
   }
 
   return (
-    <ScrollView style={styles.container}>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={styles.content}
+      showsVerticalScrollIndicator={false}
+    >
       <Text style={styles.title}>Patient Progress</Text>
+
       <Text style={styles.subtitle}>
         Understand activity and celebrate small achievements.
       </Text>
@@ -247,7 +328,11 @@ export default function ProgressScreen() {
         <>
           <View style={styles.complianceCard}>
             <Text style={styles.cardLabel}>Activity Compliance</Text>
-            <Text style={styles.complianceValue}>{compliance}%</Text>
+
+            <Text style={styles.complianceValue}>
+              {compliance}%
+            </Text>
+
             <Text style={styles.cardDescription}>
               {completed} of {total} activities completed in the last 7 days
             </Text>
@@ -276,10 +361,25 @@ export default function ProgressScreen() {
             </View>
           </View>
 
+          <Text style={styles.sectionTitle}>Game Overview</Text>
+
+          <View style={styles.statsRow}>
+            <View style={styles.statCard}>
+              <Text style={styles.statValue}>{gamesPlayed}</Text>
+              <Text style={styles.statLabel}>Games completed</Text>
+            </View>
+
+            <View style={styles.statCard}>
+              <Text style={styles.statValue}>{averageScore}%</Text>
+              <Text style={styles.statLabel}>Average score</Text>
+            </View>
+          </View>
+
           <Text style={styles.sectionTitle}>Most Played Game</Text>
 
           <View style={styles.gameCard}>
             <Text style={styles.gameEmoji}>🧠</Text>
+
             <View style={{ flex: 1 }}>
               <Text style={styles.gameName}>{mostPlayed}</Text>
               <Text style={styles.muted}>
@@ -288,14 +388,71 @@ export default function ProgressScreen() {
             </View>
           </View>
 
-          <Text style={styles.sectionTitle}>Games Activity</Text>
+          <Text style={styles.sectionTitle}>Game Performance</Text>
 
-          <View style={styles.statsRow}>
-            <View style={styles.statCard}>
-              <Text style={styles.statValue}>{gamesPlayed}</Text>
-              <Text style={styles.statLabel}>Games completed</Text>
+          {gamePerformance.length === 0 ? (
+            <View style={styles.emptyCard}>
+              <Text style={styles.emptyText}>
+                No games played in the last 7 days yet.
+              </Text>
             </View>
-          </View>
+          ) : (
+            gamePerformance.map((game) => (
+              <View key={game.name} style={styles.performanceCard}>
+                <View style={styles.performanceHeader}>
+                  <Text style={styles.gameName}>{game.name}</Text>
+                  <Text style={styles.performancePercentage}>
+                    {game.percentage}%
+                  </Text>
+                </View>
+
+                <View style={styles.progressBackground}>
+                  <View
+                    style={[
+                      styles.progressFill,
+                      { width: `${game.percentage}%` },
+                    ]}
+                  />
+                </View>
+
+                <Text style={styles.muted}>
+                  {game.played} sessions · {game.score}/{game.total} correct
+                </Text>
+              </View>
+            ))
+          )}
+
+          <Text style={styles.sectionTitle}>Recent Games</Text>
+
+          {recentGames.length === 0 ? (
+            <View style={styles.emptyCard}>
+              <Text style={styles.emptyText}>
+                Completed games will appear here.
+              </Text>
+            </View>
+          ) : (
+            recentGames.map((game, index) => (
+              <View
+                key={`${game.game_name}-${game.completed_at}-${index}`}
+                style={styles.recentGameCard}
+              >
+                <View style={styles.recentGameIcon}>
+                  <Text style={styles.recentGameEmoji}>🎮</Text>
+                </View>
+
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.gameName}>{game.game_name}</Text>
+                  <Text style={styles.muted}>
+                    {formatDate(game.completed_at)}
+                  </Text>
+                </View>
+
+                <Text style={styles.recentScore}>
+                  {game.score}/{game.total_questions}
+                </Text>
+              </View>
+            ))
+          )}
 
           <Text style={styles.sectionTitle}>Weekly Activity</Text>
 
@@ -342,7 +499,10 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#F7F5FC",
+  },
+  content: {
     padding: 20,
+    paddingBottom: 40,
   },
   center: {
     flex: 1,
@@ -420,7 +580,8 @@ const styles = StyleSheet.create({
     height: 10,
     backgroundColor: "#EEE8FF",
     borderRadius: 10,
-    marginTop: 20,
+    marginTop: 15,
+    marginBottom: 8,
     overflow: "hidden",
   },
   progressFill: {
@@ -461,9 +622,61 @@ const styles = StyleSheet.create({
     fontSize: 38,
   },
   gameName: {
-    fontSize: 17,
+    fontSize: 16,
     fontWeight: "bold",
     color: "#40317E",
+  },
+  performanceCard: {
+    backgroundColor: "#FFFFFF",
+    padding: 18,
+    borderRadius: 18,
+    marginBottom: 12,
+  },
+  performanceHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  performancePercentage: {
+    color: "#7955D9",
+    fontWeight: "bold",
+    fontSize: 18,
+  },
+  recentGameCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 18,
+    padding: 15,
+    marginBottom: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  recentGameIcon: {
+    width: 45,
+    height: 45,
+    backgroundColor: "#EEE8FF",
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  recentGameEmoji: {
+    fontSize: 23,
+  },
+  recentScore: {
+    fontSize: 16,
+    fontWeight: "bold",
+    color: "#7955D9",
+  },
+  emptyCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 18,
+    padding: 20,
+  },
+  emptyText: {
+    color: "#858096",
+    textAlign: "center",
+    marginTop: 10,
+    lineHeight: 21,
   },
   chartCard: {
     backgroundColor: "#FFFFFF",
@@ -483,6 +696,12 @@ const styles = StyleSheet.create({
     color: "#858096",
     marginBottom: 6,
   },
+  chartLabel: {
+  fontSize: 11,
+  color: "#858096",
+  marginTop: 7,
+  textAlign: "center",
+},
   barBackground: {
     height: 105,
     width: 19,
@@ -495,16 +714,6 @@ const styles = StyleSheet.create({
     width: "100%",
     backgroundColor: "#7955D9",
     borderRadius: 10,
-  },
-  chartLabel: {
-    fontSize: 11,
-    color: "#858096",
-    marginTop: 8,
-  },
-  emptyText: {
-    color: "#858096",
-    textAlign: "center",
-    marginTop: 25,
   },
   footer: {
     color: "#858096",

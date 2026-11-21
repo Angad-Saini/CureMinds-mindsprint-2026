@@ -8,6 +8,7 @@ import {
   ScrollView,
   TouchableOpacity,
   StyleSheet,
+  ActivityIndicator,
 } from "react-native";
 
 type GameScreen = "home" | "memory" | "object" | "routine";
@@ -19,6 +20,14 @@ type GameObject = {
 
 type MemoryCard = GameObject & {
   id: number;
+};
+
+type PatientSchedule = {
+  id: string;
+  title: string;
+  description: string | null;
+  scheduled_at: string;
+  is_completed: boolean;
 };
 
 const objects: GameObject[] = [
@@ -41,27 +50,6 @@ const objects: GameObject[] = [
     name: "Cup",
     image:
       "https://images.unsplash.com/photo-1514228742587-6b1558fcca3d?w=500",
-  },
-];
-
-const routines = [
-  {
-    name: "Drink Water",
-    image:
-      "https://images.unsplash.com/photo-1548839140-29a749e1cf4d?w=500",
-    description: "Remember to stay hydrated.",
-  },
-  {
-    name: "Morning Walk",
-    image:
-      "https://images.unsplash.com/photo-1476480862126-209bfaa8edc8?w=500",
-    description: "Take some time for a walk.",
-  },
-  {
-    name: "Take Medicine",
-    image:
-      "https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?w=500",
-    description: "Follow your prescribed medicine schedule.",
   },
 ];
 
@@ -125,7 +113,12 @@ export default function CognitiveGames() {
   const [answered, setAnswered] = useState(false);
   const [objectCompleted, setObjectCompleted] = useState(false);
 
-  const [routineDone, setRoutineDone] = useState<number[]>([]);
+  const [routines, setRoutines] = useState<PatientSchedule[]>([]);
+  const [routineLoading, setRoutineLoading] = useState(false);
+  const [routineError, setRoutineError] = useState("");
+  const [completingRoutine, setCompletingRoutine] = useState<string | null>(
+    null
+  );
 
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const memoryLocked = useRef(false);
@@ -254,17 +247,91 @@ export default function CognitiveGames() {
     }, 1500);
   };
 
-  const startRoutine = () => {
-    setRoutineDone([]);
-    setScreen("routine");
+  const loadRoutines = async () => {
+    setRoutineLoading(true);
+    setRoutineError("");
+
+    try {
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser();
+
+      if (userError || !user) {
+        throw new Error("Unable to identify your account. Please log in again.");
+      }
+
+      const start = new Date();
+      start.setHours(0, 0, 0, 0);
+
+      const end = new Date(start);
+      end.setDate(end.getDate() + 1);
+
+      const { data, error } = await supabase
+        .from("patient_schedules")
+        .select("id, title, description, scheduled_at, is_completed")
+        .eq("patient_id", user.id)
+        .gte("scheduled_at", start.toISOString())
+        .lt("scheduled_at", end.toISOString())
+        .order("scheduled_at", { ascending: true });
+
+      if (error) {
+        throw error;
+      }
+
+      setRoutines(data || []);
+    } catch (error) {
+      console.error("Unable to load routines:", error);
+      setRoutineError(
+        error instanceof Error
+          ? error.message
+          : "Unable to load your routines."
+      );
+    } finally {
+      setRoutineLoading(false);
+    }
   };
 
-  const toggleRoutine = (index: number) => {
-    setRoutineDone((previous) =>
-      previous.includes(index)
-        ? previous.filter((item) => item !== index)
-        : [...previous, index]
-    );
+  const startRoutine = () => {
+    setScreen("routine");
+    loadRoutines();
+  };
+
+  const completeRoutine = async (scheduleId: string) => {
+    if (completingRoutine) return;
+
+    setCompletingRoutine(scheduleId);
+    setRoutineError("");
+
+    try {
+      const { error } = await supabase.rpc(
+        "complete_patient_schedule",
+        {
+          p_schedule_id: scheduleId,
+        }
+      );
+
+      if (error) {
+        throw error;
+      }
+
+      setRoutines((previous) =>
+        previous.map((item) =>
+          item.id === scheduleId
+            ? { ...item, is_completed: true }
+            : item
+        )
+      );
+    } catch (error) {
+      console.error("Unable to complete routine:", error);
+      setRoutineError(
+        error instanceof Error
+          ? error.message
+          : "Unable to update this activity. Please try again."
+      );
+    } finally {
+      setCompletingRoutine(null);
+    }
   };
 
   const resetHome = () => {
@@ -301,6 +368,10 @@ export default function CognitiveGames() {
       </Text>
     </TouchableOpacity>
   );
+
+  const completedRoutines = routines.filter(
+    (item) => item.is_completed
+  ).length;
 
   return (
     <ScrollView
@@ -541,82 +612,148 @@ export default function CognitiveGames() {
           <Text style={styles.gameTitle}>Daily Routine</Text>
 
           <Text style={styles.description}>
-            Tap an activity when you have completed it.
+            Complete the activities assigned to you for today.
           </Text>
 
-          <View style={styles.routineProgress}>
-            <Text style={styles.routineProgressText}>
-              Your progress
-            </Text>
-
-            <Text style={styles.routineProgressText}>
-              {routineDone.length} / {routines.length}
-            </Text>
-          </View>
-
-          <View style={styles.progressContainer}>
-            <View
-              style={[
-                styles.progressFill,
-                {
-                  width: `${
-                    (routineDone.length / routines.length) * 100
-                  }%`,
-                },
-              ]}
-            />
-          </View>
-
-          {routines.map((item, index) => {
-            const isDone = routineDone.includes(index);
-
-            return (
-              <TouchableOpacity
-                key={index}
-                style={[
-                  styles.routineCard,
-                  isDone && styles.completedRoutineCard,
-                ]}
-                onPress={() => toggleRoutine(index)}
-                activeOpacity={0.8}
-              >
-                <Image
-                  source={{ uri: item.image }}
-                  style={styles.routineImage}
-                />
-
-                <View style={styles.routineDetails}>
-                  <Text style={styles.routineName}>
-                    {item.name}
+          {routineLoading ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="large" color="#7955D9" />
+              <Text style={styles.loadingText}>
+                Loading your routines...
+              </Text>
+            </View>
+          ) : (
+            <>
+              {routineError !== "" && (
+                <View style={styles.errorContainer}>
+                  <Text style={styles.errorText}>
+                    {routineError}
                   </Text>
 
-                  <Text style={styles.routineDescription}>
-                    {item.description}
-                  </Text>
-
-                  <Text
-                    style={[
-                      styles.routineStatus,
-                      isDone && styles.completedStatus,
-                    ]}
-                  >
-                    {isDone ? "Completed ✓" : "Tap to complete"}
-                  </Text>
+                  {renderActionButton("Try Again", loadRoutines)}
                 </View>
-              </TouchableOpacity>
-            );
-          })}
+              )}
 
-          {routineDone.length === routines.length && (
-            <Text style={styles.success}>
-              All activities completed! 🎉
-            </Text>
-          )}
+              {routines.length > 0 && (
+                <>
+                  <View style={styles.routineProgress}>
+                    <Text style={styles.routineProgressText}>
+                      Your progress
+                    </Text>
 
-          {renderActionButton(
-            "Reset Checklist",
-            () => setRoutineDone([]),
-            true
+                    <Text style={styles.routineProgressText}>
+                      {completedRoutines} / {routines.length}
+                    </Text>
+                  </View>
+
+                  <View style={styles.progressContainer}>
+                    <View
+                      style={[
+                        styles.progressFill,
+                        {
+                          width: `${
+                            (completedRoutines / routines.length) * 100
+                          }%`,
+                        },
+                      ]}
+                    />
+                  </View>
+
+                  {routines.map((item) => {
+                    const isDone = item.is_completed;
+                    const isCompleting =
+                      completingRoutine === item.id;
+
+                    return (
+                      <View
+                        key={item.id}
+                        style={[
+                          styles.routineCard,
+                          isDone && styles.completedRoutineCard,
+                        ]}
+                      >
+                        <View style={styles.routineDetails}>
+                          <Text style={styles.routineName}>
+                            {item.title}
+                          </Text>
+
+                          {item.description ? (
+                            <Text style={styles.routineDescription}>
+                              {item.description}
+                            </Text>
+                          ) : null}
+
+                          <Text style={styles.routineTime}>
+                            {new Date(item.scheduled_at).toLocaleTimeString(
+                              [],
+                              {
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              }
+                            )}
+                          </Text>
+
+                          <Text
+                            style={[
+                              styles.routineStatus,
+                              isDone && styles.completedStatus,
+                            ]}
+                          >
+                            {isDone
+                              ? "Completed ✓"
+                              : isCompleting
+                              ? "Saving..."
+                              : "Not completed yet"}
+                          </Text>
+                        </View>
+
+                        <TouchableOpacity
+                          style={[
+                            styles.completeButton,
+                            isDone && styles.completedButton,
+                          ]}
+                          onPress={() => completeRoutine(item.id)}
+                          disabled={isDone || completingRoutine !== null}
+                          activeOpacity={0.8}
+                        >
+                          {isCompleting ? (
+                            <ActivityIndicator
+                              size="small"
+                              color="#FFFFFF"
+                            />
+                          ) : (
+                            <Text style={styles.completeButtonText}>
+                              {isDone ? "Done" : "Complete"}
+                            </Text>
+                          )}
+                        </TouchableOpacity>
+                      </View>
+                    );
+                  })}
+
+                  {completedRoutines === routines.length && (
+                    <Text style={styles.success}>
+                      All activities completed! 🎉
+                    </Text>
+                  )}
+                </>
+              )}
+
+              {!routineLoading &&
+                !routineError &&
+                routines.length === 0 && (
+                  <View style={styles.emptyRoutine}>
+                    <Text style={styles.emptyEmoji}>📅</Text>
+                    <Text style={styles.emptyTitle}>
+                      No routines for today
+                    </Text>
+                    <Text style={styles.description}>
+                      Your caretaker hasn't added any activities for today
+                      yet. Check back later!
+                    </Text>
+                  </View>
+                )}
+            </>
           )}
         </View>
       )}
@@ -836,22 +973,17 @@ const styles = StyleSheet.create({
   routineCard: {
     flexDirection: "row",
     alignItems: "center",
-    padding: 12,
+    padding: 14,
     backgroundColor: "#F7F5FC",
     borderRadius: 18,
     marginVertical: 9,
-    gap: 14,
+    gap: 12,
     borderWidth: 1,
     borderColor: "#EAE7F1",
   },
   completedRoutineCard: {
     backgroundColor: "#F0F8F3",
     borderColor: "#B9DEC9",
-  },
-  routineImage: {
-    width: 85,
-    height: 85,
-    borderRadius: 15,
   },
   routineDetails: {
     flex: 1,
@@ -867,6 +999,12 @@ const styles = StyleSheet.create({
     color: "#77718C",
     lineHeight: 18,
   },
+  routineTime: {
+    fontSize: 13,
+    color: "#7955D9",
+    marginTop: 6,
+    fontWeight: "600",
+  },
   routineStatus: {
     color: "#7955D9",
     fontWeight: "bold",
@@ -875,6 +1013,57 @@ const styles = StyleSheet.create({
   },
   completedStatus: {
     color: "#26734F",
+  },
+  completeButton: {
+    backgroundColor: "#7955D9",
+    paddingVertical: 11,
+    paddingHorizontal: 13,
+    borderRadius: 12,
+    minWidth: 85,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  completedButton: {
+    backgroundColor: "#5DAA85",
+  },
+  completeButtonText: {
+    color: "#FFFFFF",
+    fontWeight: "bold",
+    fontSize: 13,
+  },
+  loadingContainer: {
+    alignItems: "center",
+    padding: 30,
+  },
+  loadingText: {
+    color: "#6B6487",
+    marginTop: 12,
+    fontSize: 15,
+  },
+  errorContainer: {
+    backgroundColor: "#FFF1F1",
+    borderRadius: 14,
+    padding: 14,
+    marginVertical: 12,
+  },
+  errorText: {
+    color: "#A33A3A",
+    fontSize: 14,
+    lineHeight: 21,
+  },
+  emptyRoutine: {
+    alignItems: "center",
+    padding: 20,
+  },
+  emptyEmoji: {
+    fontSize: 42,
+    marginBottom: 10,
+  },
+  emptyTitle: {
+    fontSize: 19,
+    fontWeight: "bold",
+    color: "#40317E",
+    textAlign: "center",
   },
   center: {
     alignItems: "center",
