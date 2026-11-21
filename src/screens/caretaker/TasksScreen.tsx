@@ -84,8 +84,14 @@ export default function TasksScreen() {
   }, []);
 
   useEffect(() => {
+  fetchData();
+
+  const interval = setInterval(() => {
     fetchData();
-  }, [fetchData]);
+  }, 3000);
+
+  return () => clearInterval(interval);
+}, [fetchData]);
 
   const createTask = async () => {
     if (!selectedPatient) {

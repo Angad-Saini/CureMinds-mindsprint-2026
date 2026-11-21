@@ -1,7 +1,14 @@
 import React, { useEffect, useState } from "react";
+import {
+  i18nReady,
+  changeAppLanguage,
+  supportedLanguages,
+  languageNames,
+} from "./src/i18n";
 import CognitiveGames from "./src/screens/patient/CognitiveGames";
 import LoginScreen from "./src/screens/auth/LoginScreen";
 import { supabase } from "./src/services/supabase";
+import { useTranslation } from "react-i18next";
 
 import DashboardScreen from "./src/screens/caretaker/DashboardScreen";
 import PatientsScreen from "./src/screens/caretaker/PatientsScreen";
@@ -38,14 +45,16 @@ import {
   MessageCircle,
 } from "lucide-react-native";
 
+
 type Task = {
-  id: number;
+  id: string;
   title: string;
   description: string;
   time: string;
   icon: "pill" | "water" | "game";
   completed: boolean;
 };
+
 
 const COLORS = {
   background: "#F7F5FC",
@@ -60,33 +69,6 @@ const COLORS = {
   greenLight: "#E5F5EC",
 };
 
-const initialTasks: Task[] = [
-  {
-    id: 1,
-    title: "Take your medicine",
-    description: "Your morning medicine",
-    time: "09:00 AM",
-    icon: "pill",
-    completed: false,
-  },
-  {
-    id: 2,
-    title: "Drink some water",
-    description: "Stay hydrated today",
-    time: "10:00 AM",
-    icon: "water",
-    completed: false,
-  },
-  {
-    id: 3,
-    title: "Memory game",
-    description: "Let's exercise your memory",
-    time: "11:00 AM",
-    icon: "game",
-    completed: false,
-  },
-];
-
 function TaskIcon({ type }: { type: Task["icon"] }) {
   const props = { size: 25, color: COLORS.primary };
 
@@ -95,12 +77,72 @@ function TaskIcon({ type }: { type: Task["icon"] }) {
   return <Gamepad2 {...props} />;
 }
 
+
+function LanguageSelector() {
+  const { t, i18n } = useTranslation();
+
+  return (
+    <View style={{ marginBottom: 22 }}>
+      <Text
+        style={{
+          fontSize: 13,
+          fontWeight: "800",
+          color: COLORS.text,
+          marginBottom: 11,
+        }}
+      >
+        {t("language")}
+      </Text>
+
+      <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+        <View style={{ flexDirection: "row", gap: 9 }}>
+          {supportedLanguages.map((language) => {
+            const active = i18n.language === language;
+
+            return (
+              <TouchableOpacity
+                key={language}
+                onPress={() => changeAppLanguage(language)}
+                style={{
+                  paddingHorizontal: 15,
+                  paddingVertical: 10,
+                  borderRadius: 12,
+                  backgroundColor: active
+                    ? COLORS.primary
+                    : COLORS.surface,
+                  borderWidth: 1,
+                  borderColor: active
+                    ? COLORS.primary
+                    : COLORS.border,
+                }}
+              >
+                <Text
+                  style={{
+                    fontSize: 13,
+                    fontWeight: "700",
+                    color: active ? "#FFFFFF" : COLORS.text,
+                  }}
+                >
+                  {languageNames[language]}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      </ScrollView>
+    </View>
+  );
+}
+
+
 function Header() {
+  const { t } = useTranslation();
+
   return (
     <View style={styles.header}>
       <View>
-        <Text style={styles.brand}>CureMinds</Text>
-        <Text style={styles.brandSub}>YOUR DAILY COMPANION</Text>
+        <Text style={styles.brand}>{t("appName")}</Text>
+        <Text style={styles.brandSub}>{t("homeSubtitle")}</Text>
       </View>
       <View style={styles.profileIcon}>
         <Heart size={22} color={COLORS.primary} />
@@ -159,6 +201,7 @@ function TaskCard({
 function PairingCodeCard() {
   const [code, setCode] = useState("");
   const [loading, setLoading] = useState(false);
+  const { t } = useTranslation();
 
   const generateCode = async () => {
     setLoading(true);
@@ -276,7 +319,7 @@ function HomeScreen({
 }: {
   patientName: string;
   tasks: Task[];
-  toggleTask: (id: number) => void;
+  toggleTask: (id: string) => void;
   openAssistant: () => void;
 })  {
   const completed = tasks.filter((task) => task.completed).length;
@@ -457,10 +500,25 @@ export default function App() {
   const [role, setRole] = useState<UserRole | null>(null);
   const [patientName, setPatientName] = useState("");
   const [authReady, setAuthReady] = useState(false);
+  const [languageReady, setLanguageReady] = useState(false);
 
   const [activeTab, setActiveTab] = useState("home");
   const [caretakerTab, setCaretakerTab] = useState("dashboard");
-  const [tasks, setTasks] = useState(initialTasks);
+  const [tasks, setTasks] = useState<Task[]>([]);
+
+  useEffect(() => {
+  let mounted = true;
+
+  i18nReady.then(() => {
+    if (mounted) {
+      setLanguageReady(true);
+    }
+  });
+
+  return () => {
+    mounted = false;
+  };
+}, []);
 
   useEffect(() => {
     let mounted = true;
@@ -518,19 +576,98 @@ export default function App() {
     };
   }, []);
 
-  const toggleTask = (id: number) => {
-    setTasks((previous) =>
-      previous.map((task) =>
-        task.id === id
-          ? { ...task, completed: !task.completed }
-          : task
-      )
+
+useEffect(() => {
+  if (role !== "patient") {
+    setTasks([]);
+    return;
+  }
+
+  let active = true;
+
+  const fetchTasks = async () => {
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser();
+
+    if (userError || !user || !active) return;
+
+    const { data, error } = await supabase
+      .from("patient_tasks")
+      .select("id, title, description, is_completed, created_at")
+      .eq("patient_id", user.id)
+      .order("created_at", { ascending: false });
+
+    if (!active) return;
+
+    if (error) {
+      console.error("Unable to fetch patient tasks:", error.message);
+      return;
+    }
+
+    setTasks(
+      (data || []).map((task) => ({
+        id: task.id,
+        title: task.title,
+        description: task.description || "",
+        time: `Assigned ${new Date(task.created_at).toLocaleDateString(
+          "en-IN",
+          {
+            day: "numeric",
+            month: "short",
+          }
+        )}`,
+        icon: "game" as const,
+        completed: task.is_completed,
+      }))
     );
   };
 
+  // Fetch immediately when the patient dashboard opens.
+  void fetchTasks();
+
+  // Keep the task list updated automatically.
+  const interval = setInterval(() => {
+    void fetchTasks();
+  }, 3000);
+
+  return () => {
+    active = false;
+    clearInterval(interval);
+  };
+}, [role]);
+
+
+  const toggleTask = async (id: string) => {
+  const task = tasks.find((item) => item.id === id);
+
+  if (!task) return;
+
+  const newStatus = !task.completed;
+
+  const { error } = await supabase
+    .from("patient_tasks")
+    .update({ is_completed: newStatus })
+    .eq("id", id);
+
+  if (error) {
+    Alert.alert("Unable to update task", error.message);
+    return;
+  }
+
+  setTasks((previous) =>
+    previous.map((item) =>
+      item.id === id
+        ? { ...item, completed: newStatus }
+        : item
+    )
+  );
+};
+
   const openAssistant = () => setActiveTab("assistant");
 
-  if (!authReady) {
+  if (!authReady || !languageReady) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.loadingContainer}>
