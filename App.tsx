@@ -20,13 +20,14 @@ import ProgressScreen from "./src/screens/caretaker/ProgressScreen";
 import {
   View,
   Text,
+  TextInput,
   TouchableOpacity,
   ScrollView,
   StyleSheet,
-  StatusBar,
   Alert,
 } from "react-native";
 
+import { StatusBar } from "expo-status-bar";
 import { LinearGradient } from "expo-linear-gradient";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -438,12 +439,55 @@ function HomeScreen({
 
 function AssistantScreen({
   goBack,
+  navigateTo,
 }: {
   goBack: () => void;
+  navigateTo: (tab: string) => void;
 }) {
-  const [listening, setListening] = useState(false);
+  const [command, setCommand] = useState("");
+  const [response, setResponse] = useState("");
 
   const { t } = useTranslation();
+
+  const handleCommand = () => {
+    const value = command.trim().toLowerCase();
+
+    if (!value) return;
+
+    const homeWords = [
+      "home", "homepage", "go home", "घर", "मुख्यपृष्ठ",
+      "முகப்பு", "ಮುಖಪುಟ",
+    ];
+
+    const activityWords = [
+      "activity", "activities", "games", "game",
+      "खेल", "खेळ", "चಟುವಟಿಕೆಗಳು", "விளையாட்டுகள்",
+    ];
+
+    const taskWords = [
+      "task", "tasks", "my tasks", "काम", "कार्य",
+      "பணிகள்", "ಕಾರ್ಯಗಳು",
+    ];
+
+    if (homeWords.some((word) => value.includes(word))) {
+      navigateTo("home");
+      setResponse("Opening your home screen.");
+    } else if (
+      activityWords.some((word) => value.includes(word))
+    ) {
+      navigateTo("activities");
+      setResponse("Opening your activities.");
+    } else if (
+      taskWords.some((word) => value.includes(word))
+    ) {
+      navigateTo("home");
+      setResponse("Your tasks are available on your home screen.");
+    } else {
+      setResponse(
+        "I can help you open Home or Activities. Try asking me!"
+      );
+    }
+  };
 
   return (
     <View style={styles.assistantScreen}>
@@ -478,51 +522,48 @@ function AssistantScreen({
         </View>
 
         <View style={styles.voiceArea}>
-          <TouchableOpacity
-            activeOpacity={0.85}
-            onPress={() => setListening(!listening)}
-          >
-            <LinearGradient
-              colors={
-                listening
-                  ? ["#A58BEF", "#7955D9"]
-                  : ["#9878E9", "#7955D9"]
-              }
-              style={styles.micCircle}
-            >
-              <Mic size={48} color="#FFFFFF" />
-            </LinearGradient>
-          </TouchableOpacity>
+          <View style={styles.micCircle}>
+            <Mic size={48} color="#FFFFFF" />
+          </View>
 
           <Text style={styles.listeningText}>
-            {listening
-              ? t("listening")
-              : t("startTalking")}
+            {t("letsTalk")}
           </Text>
 
           <Text style={styles.listeningSub}>
-            {listening
-              ? t("tapAgainStop")
-              : t("alwaysReady")}
+            Try typing a command below.
           </Text>
         </View>
 
-        <View style={styles.suggestionCard}>
-          <MessageCircle
-            size={22}
-            color={COLORS.primary}
+        <View style={styles.commandContainer}>
+          <TextInput
+            value={command}
+            onChangeText={setCommand}
+            placeholder="Try 'Open my activities'"
+            placeholderTextColor={COLORS.secondary}
+            style={styles.commandInput}
+            onSubmitEditing={handleCommand}
+            returnKeyType="send"
           />
 
-          <View style={{ flex: 1 }}>
-            <Text style={styles.suggestionTitle}>
-              {t("notSure")}
+          <TouchableOpacity
+            onPress={handleCommand}
+            style={styles.commandButton}
+          >
+            <Text style={styles.commandButtonText}>
+              Send
             </Text>
+          </TouchableOpacity>
+        </View>
 
-            <Text style={styles.suggestionDescription}>
-              {t("tryAsking")}
+        {response ? (
+          <View style={styles.responseCard}>
+            <Sparkles size={20} color={COLORS.primary} />
+            <Text style={styles.responseText}>
+              {response}
             </Text>
           </View>
-        </View>
+        ) : null}
 
         <Text style={styles.aiDisclaimer}>
           {t("medicalDisclaimer")}
@@ -765,10 +806,7 @@ export default function App() {
 
     return (
       <SafeAreaView style={styles.container}>
-        <StatusBar
-          barStyle="dark-content"
-          backgroundColor={COLORS.background}
-        />
+        <StatusBar style="dark" />
 
         <View style={{ flex: 1 }}>
           {renderCaretakerScreen()}
@@ -824,10 +862,7 @@ export default function App() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar
-        barStyle="dark-content"
-        backgroundColor={COLORS.background}
-      />
+      <StatusBar style="dark" />
 
       <View style={{ flex: 1 }}>
         {activeTab === "home" && (
@@ -840,10 +875,11 @@ export default function App() {
         )}
 
         {activeTab === "assistant" && (
-          <AssistantScreen
-            goBack={() => setActiveTab("home")}
-          />
-        )}
+  <AssistantScreen
+    goBack={() => setActiveTab("home")}
+    navigateTo={setActiveTab}
+  />
+)}
 
         {activeTab === "activities" && (
           <CognitiveGames />
@@ -1438,13 +1474,14 @@ const styles = StyleSheet.create({
   },
 
   micCircle: {
-    width: 155,
-    height: 155,
-    borderRadius: 78,
-    alignItems: "center",
-    justifyContent: "center",
-    elevation: 9,
-  },
+  width: 155,
+  height: 155,
+  borderRadius: 78,
+  backgroundColor: COLORS.primary,
+  alignItems: "center",
+  justifyContent: "center",
+  elevation: 9,
+},
 
   listeningText: {
     fontSize: 19,
@@ -1525,4 +1562,54 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: "#D65D72",
   },
+
+  commandContainer: {
+  width: "100%",
+  flexDirection: "row",
+  alignItems: "center",
+  gap: 10,
+},
+
+commandInput: {
+  flex: 1,
+  backgroundColor: COLORS.surface,
+  borderRadius: 14,
+  paddingHorizontal: 15,
+  paddingVertical: 15,
+  borderWidth: 1,
+  borderColor: COLORS.border,
+  color: COLORS.text,
+  fontSize: 14,
+},
+
+commandButton: {
+  backgroundColor: COLORS.primary,
+  paddingHorizontal: 20,
+  paddingVertical: 15,
+  borderRadius: 14,
+},
+
+commandButtonText: {
+  color: "#FFFFFF",
+  fontWeight: "800",
+},
+
+responseCard: {
+  width: "100%",
+  flexDirection: "row",
+  alignItems: "center",
+  gap: 12,
+  backgroundColor: COLORS.lavender,
+  borderRadius: 15,
+  padding: 15,
+},
+
+responseText: {
+  flex: 1,
+  color: COLORS.primaryDark,
+  fontSize: 13,
+  fontWeight: "600",
+  lineHeight: 20,
+},
 });
+
