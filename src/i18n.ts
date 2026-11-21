@@ -5,6 +5,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { getLocales } from "expo-localization";
 
 const resources = {
+
   en: {
     translation: {
       appName: "CureMinds",
@@ -160,6 +161,8 @@ const resources = {
     },
   },
 };
+
+
 
 export type AppLanguage = keyof typeof resources;
 
