@@ -11,10 +11,20 @@ import {
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { supabase } from "../../services/supabase";
-import { Lock, Mail, User, Sparkles } from "lucide-react-native";
+import {
+  Lock,
+  Mail,
+  User,
+  Sparkles,
+  Heart,
+  Users,
+  Check,
+} from "lucide-react-native";
+
+type Role = "patient" | "caretaker";
 
 type Props = {
-  onLogin: (role: "patient" | "caretaker") => void;
+  onLogin: (role: Role) => void;
 };
 
 export default function LoginScreen({ onLogin }: Props) {
@@ -22,6 +32,7 @@ export default function LoginScreen({ onLogin }: Props) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [selectedRole, setSelectedRole] = useState<Role | null>(null);
   const [loading, setLoading] = useState(false);
 
   const handleAuth = async () => {
@@ -35,6 +46,11 @@ export default function LoginScreen({ onLogin }: Props) {
       return;
     }
 
+    if (isRegistering && !selectedRole) {
+      Alert.alert("Select your role", "Please choose Patient or Caretaker.");
+      return;
+    }
+
     setLoading(true);
 
     try {
@@ -43,7 +59,10 @@ export default function LoginScreen({ onLogin }: Props) {
           email: email.trim(),
           password,
           options: {
-            data: { full_name: name.trim() },
+            data: {
+              full_name: name.trim(),
+              role: selectedRole,
+            },
           },
         });
 
@@ -55,6 +74,7 @@ export default function LoginScreen({ onLogin }: Props) {
             "Your account was created. Verify your email, then log in."
           );
           setIsRegistering(false);
+          setSelectedRole(null);
           return;
         }
       } else {
@@ -79,12 +99,12 @@ export default function LoginScreen({ onLogin }: Props) {
         .single();
 
       if (profileError) {
-  console.log("PROFILE ERROR:", JSON.stringify(profileError, null, 2));
+        console.log("PROFILE ERROR:", JSON.stringify(profileError, null, 2));
 
-  throw new Error(
-    `Profile error: ${profileError.message} | Code: ${profileError.code}`
-  );
-}
+        throw new Error(
+          `Profile error: ${profileError.message} | Code: ${profileError.code}`
+        );
+      }
 
       if (profile.role !== "patient" && profile.role !== "caretaker") {
         throw new Error("Your account does not have a valid role.");
@@ -96,6 +116,11 @@ export default function LoginScreen({ onLogin }: Props) {
     } finally {
       setLoading(false);
     }
+  };
+
+  const switchAuthMode = () => {
+    setIsRegistering(!isRegistering);
+    setSelectedRole(null);
   };
 
   return (
@@ -119,17 +144,89 @@ export default function LoginScreen({ onLogin }: Props) {
         </Text>
 
         {isRegistering && (
-          <View style={styles.inputContainer}>
-            <User size={19} color="#858096" />
-            <TextInput
-              style={styles.input}
-              placeholder="Full name"
-              placeholderTextColor="#A6A1B3"
-              value={name}
-              onChangeText={setName}
-              autoCapitalize="words"
-            />
-          </View>
+          <>
+            <View style={styles.inputContainer}>
+              <User size={19} color="#858096" />
+              <TextInput
+                style={styles.input}
+                placeholder="Full name"
+                placeholderTextColor="#A6A1B3"
+                value={name}
+                onChangeText={setName}
+                autoCapitalize="words"
+              />
+            </View>
+
+            <Text style={styles.roleHeading}>I am registering as a...</Text>
+
+            <View style={styles.roleContainer}>
+              <TouchableOpacity
+                activeOpacity={0.85}
+                style={[
+                  styles.roleCard,
+                  selectedRole === "patient" && styles.selectedRoleCard,
+                ]}
+                onPress={() => setSelectedRole("patient")}
+              >
+                <View
+                  style={[
+                    styles.roleIcon,
+                    selectedRole === "patient" && styles.selectedRoleIcon,
+                  ]}
+                >
+                  <Heart
+                    size={23}
+                    color={selectedRole === "patient" ? "#FFFFFF" : "#7955D9"}
+                  />
+                </View>
+
+                <View style={styles.roleTextContainer}>
+                  <Text style={styles.roleTitle}>Patient</Text>
+                  <Text style={styles.roleDescription}>
+                    Manage your daily activities and routines.
+                  </Text>
+                </View>
+
+                {selectedRole === "patient" && (
+                  <Check size={20} color="#7955D9" />
+                )}
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                activeOpacity={0.85}
+                style={[
+                  styles.roleCard,
+                  selectedRole === "caretaker" && styles.selectedRoleCard,
+                ]}
+                onPress={() => setSelectedRole("caretaker")}
+              >
+                <View
+                  style={[
+                    styles.roleIcon,
+                    selectedRole === "caretaker" && styles.selectedRoleIcon,
+                  ]}
+                >
+                  <Users
+                    size={23}
+                    color={
+                      selectedRole === "caretaker" ? "#FFFFFF" : "#7955D9"
+                    }
+                  />
+                </View>
+
+                <View style={styles.roleTextContainer}>
+                  <Text style={styles.roleTitle}>Caretaker</Text>
+                  <Text style={styles.roleDescription}>
+                    Support and manage linked patients.
+                  </Text>
+                </View>
+
+                {selectedRole === "caretaker" && (
+                  <Check size={20} color="#7955D9" />
+                )}
+              </TouchableOpacity>
+            </View>
+          </>
         )}
 
         <View style={styles.inputContainer}>
@@ -180,7 +277,7 @@ export default function LoginScreen({ onLogin }: Props) {
 
         <TouchableOpacity
           style={styles.switchButton}
-          onPress={() => setIsRegistering(!isRegistering)}
+          onPress={switchAuthMode}
         >
           <Text style={styles.switchText}>
             {isRegistering
@@ -259,6 +356,54 @@ const styles = StyleSheet.create({
     fontSize: 15,
     outlineStyle: "none",
   } as any,
+  roleHeading: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#514B65",
+    marginBottom: 11,
+  },
+  roleContainer: {
+    gap: 10,
+    marginBottom: 17,
+  },
+  roleCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1.5,
+    borderColor: "#EAE7F1",
+    borderRadius: 15,
+    padding: 13,
+    gap: 12,
+  },
+  selectedRoleCard: {
+    borderColor: "#7955D9",
+    backgroundColor: "#F3EFFF",
+  },
+  roleIcon: {
+    width: 43,
+    height: 43,
+    borderRadius: 13,
+    backgroundColor: "#EEE8FF",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  selectedRoleIcon: {
+    backgroundColor: "#7955D9",
+  },
+  roleTextContainer: {
+    flex: 1,
+  },
+  roleTitle: {
+    fontSize: 15,
+    fontWeight: "800",
+    color: "#28243A",
+  },
+  roleDescription: {
+    fontSize: 11,
+    color: "#858096",
+    marginTop: 3,
+  },
   submitButton: {
     height: 56,
     borderRadius: 15,
