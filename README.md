@@ -1,4 +1,4 @@
-# CureMinds 🧠💜
+# CureMinds 
 
 **Care that remembers.**
 
