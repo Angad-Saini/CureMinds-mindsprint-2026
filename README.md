@@ -1,6 +1,8 @@
-# CureMinds 
+# CureMinds
 
 **Care that remembers.**
+
+🌐 **Website:** [https://angad-saini.github.io/CureMinds-website/](https://angad-saini.github.io/CureMinds-website/)
 
 CureMinds is a React Native application built for **MindSprint 2026** to simplify everyday patient care and caretaker coordination.
 
